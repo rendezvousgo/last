@@ -15,7 +15,7 @@ export class StrategyEngine {
         
         const matched = [];
         
-        // ===== BUY 전략 (1-10) =====
+        // ===== BUY 전략 (1-25) =====
         const strategies = [
             this.strategy01(indicators),
             this.strategy02(indicators, volumeProfile),
@@ -27,7 +27,22 @@ export class StrategyEngine {
             this.strategy08(indicators, volumeProfile),
             this.strategy09(indicators),
             this.strategy10(indicators),
-            // ===== SELL 전략 (11-20) =====
+            this.strategy21(indicators),
+            this.strategy22(indicators),
+            this.strategy23(indicators),
+            this.strategy24(indicators, volumeProfile),
+            this.strategy25(indicators),
+            this.strategy26(indicators, fearGreed),
+            this.strategy27(indicators),
+            this.strategy28(indicators),
+            this.strategy29(indicators),
+            this.strategy30(indicators),
+            this.strategy31(indicators, volumeProfile),
+            this.strategy32(indicators),
+            this.strategy33(indicators),
+            this.strategy34(indicators, fearGreed),
+            this.strategy35(indicators),
+            // ===== SELL 전략 (11-20, 36-50) =====
             this.strategy11(indicators),
             this.strategy12(indicators, volumeProfile),
             this.strategy13(indicators),
@@ -37,7 +52,22 @@ export class StrategyEngine {
             this.strategy17(indicators, fearGreed),
             this.strategy18(indicators, volumeProfile),
             this.strategy19(indicators),
-            this.strategy20(indicators)
+            this.strategy20(indicators),
+            this.strategy36(indicators),
+            this.strategy37(indicators),
+            this.strategy38(indicators),
+            this.strategy39(indicators, volumeProfile),
+            this.strategy40(indicators),
+            this.strategy41(indicators, fearGreed),
+            this.strategy42(indicators),
+            this.strategy43(indicators),
+            this.strategy44(indicators),
+            this.strategy45(indicators),
+            this.strategy46(indicators, volumeProfile),
+            this.strategy47(indicators),
+            this.strategy48(indicators),
+            this.strategy49(indicators, fearGreed),
+            this.strategy50(indicators)
         ];
         
         strategies.forEach(s => {
@@ -538,6 +568,588 @@ export class StrategyEngine {
     }
     
     // ═══════════════════════════════════════════════════════════════
+    // 추가 BUY 전략 (21-35)
+    // ═══════════════════════════════════════════════════════════════
+    
+    /**
+     * 전략 21: 극단적 과매도 (RSI 30-40 + BB < 30)
+     */
+    static strategy21(ind) {
+        const rsiOversoldZone = ind.rsi > 30 && ind.rsi < 40;
+        const bbLowExtreme = ind.bollingerBands && ind.bollingerBands.position < 30;
+        
+        const match = rsiOversoldZone && bbLowExtreme;
+        
+        return {
+            id: 21,
+            name: '극단적 과매도',
+            direction: 'BUY',
+            match,
+            confidence: match ? 68 : 0
+        };
+    }
+    
+    /**
+     * 전략 22: MACD 히스토그램 상승 전환 + RSI > 40
+     */
+    static strategy22(ind) {
+        const macdTurningUp = ind.macd && ind.macd.histogram > -20 && ind.macd.histogram < 20 && ind.macd.histogram > 0;
+        const rsiRecovering = ind.rsi > 40 && ind.rsi < 55;
+        
+        const match = macdTurningUp && rsiRecovering;
+        
+        return {
+            id: 22,
+            name: 'MACD 히스토그램 상승 전환',
+            direction: 'BUY',
+            match,
+            confidence: match ? 65 : 0
+        };
+    }
+    
+    /**
+     * 전략 23: EMA 골든 + RSI 중립 + BB 하단
+     */
+    static strategy23(ind) {
+        const emaGolden = ind.ema20 > ind.ema50;
+        const rsiNeutral = ind.rsi > 40 && ind.rsi < 60;
+        const bbLower = ind.bollingerBands && ind.bollingerBands.position < 50;
+        
+        const match = emaGolden && rsiNeutral && bbLower;
+        
+        return {
+            id: 23,
+            name: 'EMA 골든 + RSI 중립 + BB 하단',
+            direction: 'BUY',
+            match,
+            confidence: match ? 67 : 0
+        };
+    }
+    
+    /**
+     * 전략 24: 볼륨 급증 + RSI 상승 + MACD > 0
+     */
+    static strategy24(ind, vol) {
+        const volumeSpike = vol && vol.buyPressure > 60;
+        const rsiRising = ind.rsi > 45 && ind.rsi < 65;
+        const macdPositive = ind.macd && ind.macd.histogram > 0;
+        
+        const match = volumeSpike && rsiRising && macdPositive;
+        
+        return {
+            id: 24,
+            name: '볼륨 급증 + RSI 상승',
+            direction: 'BUY',
+            match,
+            confidence: match ? 70 : 0
+        };
+    }
+    
+    /**
+     * 전략 25: BB 하단 근처 + RSI 상승 추세
+     */
+    static strategy25(ind) {
+        const bbNearLower = ind.bollingerBands && ind.bollingerBands.position > 20 && ind.bollingerBands.position < 40;
+        const rsiUptrend = ind.rsi > 35 && ind.rsi < 50;
+        
+        const match = bbNearLower && rsiUptrend;
+        
+        return {
+            id: 25,
+            name: 'BB 하단 근처 + RSI 상승',
+            direction: 'BUY',
+            match,
+            confidence: match ? 64 : 0
+        };
+    }
+    
+    /**
+     * 전략 26: Fear&Greed 극단 공포 + RSI < 40 + MACD 골든
+     */
+    static strategy26(ind, fg) {
+        const extremeFear = fg && fg.value < 30;
+        const rsiLow = ind.rsi < 40;
+        const macdGolden = ind.macd && ind.macd.MACD > ind.macd.signal && ind.macd.histogram > 0;
+        
+        const match = extremeFear && rsiLow && macdGolden;
+        
+        return {
+            id: 26,
+            name: 'Fear&Greed 극공포 + MACD 골든',
+            direction: 'BUY',
+            match,
+            confidence: match ? 72 : 0
+        };
+    }
+    
+    /**
+     * 전략 27: EMA 골든 직후 + BB 확장
+     */
+    static strategy27(ind) {
+        const emaGoldenRecent = ind.ema20 > ind.ema50 && (ind.ema20 - ind.ema50) < ind.ema50 * 0.01; // 1% 이내
+        const bbExpanding = ind.bollingerBands && ind.bollingerBands.bandwidth > 3;
+        
+        const match = emaGoldenRecent && bbExpanding;
+        
+        return {
+            id: 27,
+            name: 'EMA 골든 직후 + BB 확장',
+            direction: 'BUY',
+            match,
+            confidence: match ? 66 : 0
+        };
+    }
+    
+    /**
+     * 전략 28: RSI 상승 + MACD 양수 + BB 하단 + EMA 상승
+     */
+    static strategy28(ind) {
+        const rsiRising = ind.rsi > 40 && ind.rsi < 55;
+        const macdPositive = ind.macd && ind.macd.histogram > 0;
+        const bbLowerHalf = ind.bollingerBands && ind.bollingerBands.position < 45;
+        const emaUptrend = ind.ema20 > ind.ema50;
+        
+        const match = rsiRising && macdPositive && bbLowerHalf && emaUptrend;
+        
+        return {
+            id: 28,
+            name: 'RSI 상승 + MACD 양수 + BB 하단',
+            direction: 'BUY',
+            match,
+            confidence: match ? 66 : 0
+        };
+    }
+    
+    /**
+     * 전략 29: BB Squeeze 해제 + 상향 돌파
+     */
+    static strategy29(ind) {
+        const squeezeRelease = ind.bollingerBands && 
+            ind.bollingerBands.bandwidth > 2 && 
+            ind.bollingerBands.bandwidth < 4;
+        const breakingUp = ind.bollingerBands && ind.bollingerBands.position > 55;
+        const macdSupport = ind.macd && ind.macd.histogram > 0;
+        
+        const match = squeezeRelease && breakingUp && macdSupport;
+        
+        return {
+            id: 29,
+            name: 'BB Squeeze 해제 상향',
+            direction: 'BUY',
+            match,
+            confidence: match ? 69 : 0
+        };
+    }
+    
+    /**
+     * 전략 30: MACD 골든 + BB 중하단
+     */
+    static strategy30(ind) {
+        const macdGolden = ind.macd && ind.macd.MACD > ind.macd.signal;
+        const bbLowerMid = ind.bollingerBands && 
+            ind.bollingerBands.position > 30 && 
+            ind.bollingerBands.position < 50;
+        
+        const match = macdGolden && bbLowerMid;
+        
+        return {
+            id: 30,
+            name: 'MACD 골든 + BB 중하단',
+            direction: 'BUY',
+            match,
+            confidence: match ? 66 : 0
+        };
+    }
+    
+    /**
+     * 전략 31: RSI 과매도 탈출 + 볼륨 증가
+     */
+    static strategy31(ind, vol) {
+        const rsiEscaping = ind.rsi > 30 && ind.rsi < 45;
+        const volumeUp = vol && vol.buyPressure > 55;
+        
+        const match = rsiEscaping && volumeUp;
+        
+        return {
+            id: 31,
+            name: 'RSI 과매도 탈출 + 볼륨',
+            direction: 'BUY',
+            match,
+            confidence: match ? 67 : 0
+        };
+    }
+    
+    /**
+     * 전략 32: EMA 상승세 + RSI 50 돌파
+     */
+    static strategy32(ind) {
+        const emaUptrend = ind.ema20 > ind.ema50;
+        const rsiBreaking50 = ind.rsi > 50 && ind.rsi < 60;
+        
+        const match = emaUptrend && rsiBreaking50;
+        
+        return {
+            id: 32,
+            name: 'EMA 상승 + RSI 50 돌파',
+            direction: 'BUY',
+            match,
+            confidence: match ? 65 : 0
+        };
+    }
+    
+    /**
+     * 전략 33: BB 중앙선 상향 돌파 + MACD 골든 + RSI 상승
+     */
+    static strategy33(ind) {
+        const bbMidBreakUp = ind.bollingerBands && 
+            ind.bollingerBands.position > 50 && 
+            ind.bollingerBands.position < 60;
+        const macdGolden = ind.macd && ind.macd.MACD > ind.macd.signal && ind.macd.histogram > 0;
+        const rsiRising = ind.rsi > 45 && ind.rsi < 60;
+        
+        const match = bbMidBreakUp && macdGolden && rsiRising;
+        
+        return {
+            id: 33,
+            name: 'BB 중앙선 상향 + MACD 골든',
+            direction: 'BUY',
+            match,
+            confidence: match ? 67 : 0
+        };
+    }
+    
+    /**
+     * 전략 34: Fear&Greed 급락 후 반등 + RSI > 35
+     */
+    static strategy34(ind, fg) {
+        const fearRebounding = fg && fg.value > 25 && fg.value < 40;
+        const rsiRecovering = ind.rsi > 35 && ind.rsi < 50;
+        
+        const match = fearRebounding && rsiRecovering;
+        
+        return {
+            id: 34,
+            name: 'Fear&Greed 반등 + RSI',
+            direction: 'BUY',
+            match,
+            confidence: match ? 62 : 0
+        };
+    }
+    
+    /**
+     * 전략 35: 다중 지표 약상승 + EMA 상승
+     */
+    static strategy35(ind) {
+        const rsiMidUp = ind.rsi > 48 && ind.rsi < 58;
+        const macdMildPositive = ind.macd && ind.macd.histogram > 5 && ind.macd.histogram < 50;
+        const bbLowerMid = ind.bollingerBands && 
+            ind.bollingerBands.position > 35 && 
+            ind.bollingerBands.position < 50;
+        const emaUptrend = ind.ema20 > ind.ema50;
+        
+        const match = rsiMidUp && macdMildPositive && bbLowerMid && emaUptrend;
+        
+        return {
+            id: 35,
+            name: '다중 지표 약상승 + EMA',
+            direction: 'BUY',
+            match,
+            confidence: match ? 64 : 0
+        };
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 추가 SELL 전략 (36-50)
+    // ═══════════════════════════════════════════════════════════════
+    
+    /**
+     * 전략 36: 극단적 과매수 (RSI 60-70 + BB > 70)
+     */
+    static strategy36(ind) {
+        const rsiOverboughtZone = ind.rsi > 60 && ind.rsi < 70;
+        const bbHighExtreme = ind.bollingerBands && ind.bollingerBands.position > 70;
+        
+        const match = rsiOverboughtZone && bbHighExtreme;
+        
+        return {
+            id: 36,
+            name: '극단적 과매수',
+            direction: 'SELL',
+            match,
+            confidence: match ? 68 : 0
+        };
+    }
+    
+    /**
+     * 전략 37: MACD 히스토그램 하락 전환 + RSI < 60
+     */
+    static strategy37(ind) {
+        const macdTurningDown = ind.macd && ind.macd.histogram < 20 && ind.macd.histogram > -20 && ind.macd.histogram < 0;
+        const rsiWeakening = ind.rsi > 45 && ind.rsi < 60;
+        
+        const match = macdTurningDown && rsiWeakening;
+        
+        return {
+            id: 37,
+            name: 'MACD 히스토그램 하락 전환',
+            direction: 'SELL',
+            match,
+            confidence: match ? 65 : 0
+        };
+    }
+    
+    /**
+     * 전략 38: EMA 데드 + RSI 중립 + BB 상단
+     */
+    static strategy38(ind) {
+        const emaDead = ind.ema20 < ind.ema50;
+        const rsiNeutral = ind.rsi > 40 && ind.rsi < 60;
+        const bbUpper = ind.bollingerBands && ind.bollingerBands.position > 50;
+        
+        const match = emaDead && rsiNeutral && bbUpper;
+        
+        return {
+            id: 38,
+            name: 'EMA 데드 + RSI 중립 + BB 상단',
+            direction: 'SELL',
+            match,
+            confidence: match ? 67 : 0
+        };
+    }
+    
+    /**
+     * 전략 39: 볼륨 급증 + RSI 하락 + MACD < 0
+     */
+    static strategy39(ind, vol) {
+        const volumeSpike = vol && vol.sellPressure > 60;
+        const rsiFalling = ind.rsi > 35 && ind.rsi < 55;
+        const macdNegative = ind.macd && ind.macd.histogram < 0;
+        
+        const match = volumeSpike && rsiFalling && macdNegative;
+        
+        return {
+            id: 39,
+            name: '볼륨 급증 + RSI 하락',
+            direction: 'SELL',
+            match,
+            confidence: match ? 70 : 0
+        };
+    }
+    
+    /**
+     * 전략 40: BB 상단 근처 + RSI 하락 추세
+     */
+    static strategy40(ind) {
+        const bbNearUpper = ind.bollingerBands && ind.bollingerBands.position > 60 && ind.bollingerBands.position < 80;
+        const rsiDowntrend = ind.rsi > 50 && ind.rsi < 65;
+        
+        const match = bbNearUpper && rsiDowntrend;
+        
+        return {
+            id: 40,
+            name: 'BB 상단 근처 + RSI 하락',
+            direction: 'SELL',
+            match,
+            confidence: match ? 64 : 0
+        };
+    }
+    
+    /**
+     * 전략 41: Fear&Greed 극단 탐욕 + RSI > 60 + MACD 데드
+     */
+    static strategy41(ind, fg) {
+        const extremeGreed = fg && fg.value > 70;
+        const rsiHigh = ind.rsi > 60;
+        const macdDead = ind.macd && ind.macd.MACD < ind.macd.signal && ind.macd.histogram < 0;
+        
+        const match = extremeGreed && rsiHigh && macdDead;
+        
+        return {
+            id: 41,
+            name: 'Fear&Greed 극탐욕 + MACD 데드',
+            direction: 'SELL',
+            match,
+            confidence: match ? 72 : 0
+        };
+    }
+    
+    /**
+     * 전략 42: EMA 데드 직후 + BB 확장
+     */
+    static strategy42(ind) {
+        const emaDeadRecent = ind.ema20 < ind.ema50 && (ind.ema50 - ind.ema20) < ind.ema50 * 0.01;
+        const bbExpanding = ind.bollingerBands && ind.bollingerBands.bandwidth > 3;
+        
+        const match = emaDeadRecent && bbExpanding;
+        
+        return {
+            id: 42,
+            name: 'EMA 데드 직후 + BB 확장',
+            direction: 'SELL',
+            match,
+            confidence: match ? 66 : 0
+        };
+    }
+    
+    /**
+     * 전략 43: RSI 하락 + MACD 음수 + BB 상단 + EMA 하락
+     */
+    static strategy43(ind) {
+        const rsiFalling = ind.rsi > 45 && ind.rsi < 60;
+        const macdNegative = ind.macd && ind.macd.histogram < 0;
+        const bbUpperHalf = ind.bollingerBands && ind.bollingerBands.position > 55;
+        const emaDowntrend = ind.ema20 < ind.ema50;
+        
+        const match = rsiFalling && macdNegative && bbUpperHalf && emaDowntrend;
+        
+        return {
+            id: 43,
+            name: 'RSI 하락 + MACD 음수 + BB 상단',
+            direction: 'SELL',
+            match,
+            confidence: match ? 66 : 0
+        };
+    }
+    
+    /**
+     * 전략 44: BB Squeeze 해제 + 하향 돌파
+     */
+    static strategy44(ind) {
+        const squeezeRelease = ind.bollingerBands && 
+            ind.bollingerBands.bandwidth > 2 && 
+            ind.bollingerBands.bandwidth < 4;
+        const breakingDown = ind.bollingerBands && ind.bollingerBands.position < 45;
+        const macdSupport = ind.macd && ind.macd.histogram < 0;
+        
+        const match = squeezeRelease && breakingDown && macdSupport;
+        
+        return {
+            id: 44,
+            name: 'BB Squeeze 해제 하향',
+            direction: 'SELL',
+            match,
+            confidence: match ? 69 : 0
+        };
+    }
+    
+    /**
+     * 전략 45: MACD 데드 + BB 중상단
+     */
+    static strategy45(ind) {
+        const macdDead = ind.macd && ind.macd.MACD < ind.macd.signal;
+        const bbUpperMid = ind.bollingerBands && 
+            ind.bollingerBands.position > 50 && 
+            ind.bollingerBands.position < 70;
+        
+        const match = macdDead && bbUpperMid;
+        
+        return {
+            id: 45,
+            name: 'MACD 데드 + BB 중상단',
+            direction: 'SELL',
+            match,
+            confidence: match ? 66 : 0
+        };
+    }
+    
+    /**
+     * 전략 46: RSI 과매수 진입 + 볼륨 증가
+     */
+    static strategy46(ind, vol) {
+        const rsiEnteringOverbought = ind.rsi > 55 && ind.rsi < 70;
+        const volumeUp = vol && vol.sellPressure > 55;
+        
+        const match = rsiEnteringOverbought && volumeUp;
+        
+        return {
+            id: 46,
+            name: 'RSI 과매수 진입 + 볼륨',
+            direction: 'SELL',
+            match,
+            confidence: match ? 67 : 0
+        };
+    }
+    
+    /**
+     * 전략 47: EMA 하락세 + RSI 50 하향 돌파
+     */
+    static strategy47(ind) {
+        const emaDowntrend = ind.ema20 < ind.ema50;
+        const rsiBreaking50Down = ind.rsi > 40 && ind.rsi < 50;
+        
+        const match = emaDowntrend && rsiBreaking50Down;
+        
+        return {
+            id: 47,
+            name: 'EMA 하락 + RSI 50 하향',
+            direction: 'SELL',
+            match,
+            confidence: match ? 65 : 0
+        };
+    }
+    
+    /**
+     * 전략 48: BB 중앙선 하향 돌파 + MACD 데드 + RSI 하락
+     */
+    static strategy48(ind) {
+        const bbMidBreakDown = ind.bollingerBands && 
+            ind.bollingerBands.position > 40 && 
+            ind.bollingerBands.position < 50;
+        const macdDead = ind.macd && ind.macd.MACD < ind.macd.signal && ind.macd.histogram < 0;
+        const rsiFalling = ind.rsi > 40 && ind.rsi < 55;
+        
+        const match = bbMidBreakDown && macdDead && rsiFalling;
+        
+        return {
+            id: 48,
+            name: 'BB 중앙선 하향 + MACD 데드',
+            direction: 'SELL',
+            match,
+            confidence: match ? 67 : 0
+        };
+    }
+    
+    /**
+     * 전략 49: Fear&Greed 급등 후 하락 + RSI < 65
+     */
+    static strategy49(ind, fg) {
+        const greedFalling = fg && fg.value > 60 && fg.value < 75;
+        const rsiWeakening = ind.rsi > 50 && ind.rsi < 65;
+        
+        const match = greedFalling && rsiWeakening;
+        
+        return {
+            id: 49,
+            name: 'Fear&Greed 하락 + RSI',
+            direction: 'SELL',
+            match,
+            confidence: match ? 62 : 0
+        };
+    }
+    
+    /**
+     * 전략 50: 다중 지표 약하락 + EMA 하락
+     */
+    static strategy50(ind) {
+        const rsiMidDown = ind.rsi > 42 && ind.rsi < 52;
+        const macdMildNegative = ind.macd && ind.macd.histogram < -5 && ind.macd.histogram > -50;
+        const bbUpperMid = ind.bollingerBands && 
+            ind.bollingerBands.position > 50 && 
+            ind.bollingerBands.position < 65;
+        const emaDowntrend = ind.ema20 < ind.ema50;
+        
+        const match = rsiMidDown && macdMildNegative && bbUpperMid && emaDowntrend;
+        
+        return {
+            id: 50,
+            name: '다중 지표 약하락 + EMA',
+            direction: 'SELL',
+            match,
+            confidence: match ? 64 : 0
+        };
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
     // 다이버전스 감지
     // ═══════════════════════════════════════════════════════════════
     
@@ -669,67 +1281,61 @@ export class StrategyEngine {
     // ═══════════════════════════════════════════════════════════════
     
     /**
-     * 매칭된 전략들로 최종 결정
+     * 매칭된 전략들로 최종 결정 (투표 방식)
+     * - BUY 신호 vs SELL 신호 개수 비교
+     * - 동점이면 신뢰도 합산이 높은 쪽
      */
     static makeDecision(matchedStrategies, indicators = null) {
-        // 매칭 전략 없어도 무조건 BUY/SELL 결정 (업다운 테스트용)
-        if (matchedStrategies.length === 0) {
-            // 기본값: RSI 50 기준으로 결정
-            return {
-                decision: 'BUY',  // 기본값 BUY (전략 없으면 50:50이므로)
-                confidence: 51,
-                matchedStrategies: [],
-                buyStrategies: [],
-                sellStrategies: [],
-                buyCount: 0,
-                sellCount: 0,
-                reason: '매칭 전략 없음 - 기본 BUY'
-            };
-        }
-        
         const buyStrategies = matchedStrategies.filter(s => s.direction === 'BUY');
         const sellStrategies = matchedStrategies.filter(s => s.direction === 'SELL');
         
         const buyCount = buyStrategies.length;
         const sellCount = sellStrategies.length;
-        const buyConfAvg = buyCount > 0 
-            ? buyStrategies.reduce((a, s) => a + s.confidence, 0) / buyCount 
-            : 0;
-        const sellConfAvg = sellCount > 0 
-            ? sellStrategies.reduce((a, s) => a + s.confidence, 0) / sellCount 
-            : 0;
+        
+        const buyConfTotal = buyStrategies.reduce((sum, s) => sum + s.confidence, 0);
+        const sellConfTotal = sellStrategies.reduce((sum, s) => sum + s.confidence, 0);
+        
+        const buyConfAvg = buyCount > 0 ? buyConfTotal / buyCount : 0;
+        const sellConfAvg = sellCount > 0 ? sellConfTotal / sellCount : 0;
         
         let decision, confidence, reason;
         
         if (buyCount > sellCount) {
+            // BUY 신호가 더 많음
             decision = 'BUY';
-            confidence = Math.min(buyConfAvg + (buyCount - sellCount) * 3, 95);
-            reason = `${buyCount}개 매수 전략 vs ${sellCount}개 매도 전략`;
+            confidence = Math.min(Math.round(buyConfAvg + (buyCount - sellCount) * 2), 95);
+            reason = `BUY 투표 우세 (${buyCount}:${sellCount})`;
         } else if (sellCount > buyCount) {
+            // SELL 신호가 더 많음
             decision = 'SELL';
-            confidence = Math.min(sellConfAvg + (sellCount - buyCount) * 3, 95);
-            reason = `${sellCount}개 매도 전략 vs ${buyCount}개 매수 전략`;
-        } else {
-            // 동점이면 신뢰도로 결정
-            if (buyConfAvg > sellConfAvg + 5) {
+            confidence = Math.min(Math.round(sellConfAvg + (sellCount - buyCount) * 2), 95);
+            reason = `SELL 투표 우세 (${sellCount}:${buyCount})`;
+        } else if (buyCount === sellCount && buyCount > 0) {
+            // 동점: 신뢰도 합산 비교
+            if (buyConfTotal > sellConfTotal) {
                 decision = 'BUY';
-                confidence = buyConfAvg;
-                reason = `동점, 매수 신뢰도(${buyConfAvg.toFixed(0)}%) 우세`;
-            } else if (sellConfAvg > buyConfAvg + 5) {
+                confidence = Math.round(buyConfAvg);
+                reason = `동점, BUY 신뢰도 우세 (${buyConfTotal.toFixed(0)} vs ${sellConfTotal.toFixed(0)})`;
+            } else if (sellConfTotal > buyConfTotal) {
                 decision = 'SELL';
-                confidence = sellConfAvg;
-                reason = `동점, 매도 신뢰도(${sellConfAvg.toFixed(0)}%) 우세`;
+                confidence = Math.round(sellConfAvg);
+                reason = `동점, SELL 신뢰도 우세 (${sellConfTotal.toFixed(0)} vs ${buyConfTotal.toFixed(0)})`;
             } else {
-                // 동점 + 신뢰도 비슷 → 신뢰도 높은 쪽 (같으면 BUY)
-                decision = buyConfAvg >= sellConfAvg ? 'BUY' : 'SELL';
-                confidence = Math.max(buyConfAvg, sellConfAvg);
-                reason = `동점, ${decision} 선택 (신뢰도 근접)`;
+                // 완전 동점: BUY 우선
+                decision = 'BUY';
+                confidence = Math.round(buyConfAvg);
+                reason = `완전 동점, BUY 선택`;
             }
+        } else {
+            // 매칭 전략 없음: 기본 BUY
+            decision = 'BUY';
+            confidence = 51;
+            reason = '매칭 전략 없음 - 기본 BUY';
         }
         
         return {
             decision,
-            confidence: Math.round(confidence),
+            confidence,
             matchedStrategies,
             buyStrategies,
             sellStrategies,
@@ -737,6 +1343,8 @@ export class StrategyEngine {
             sellCount,
             buyConfAvg: Math.round(buyConfAvg),
             sellConfAvg: Math.round(sellConfAvg),
+            buyConfTotal: Math.round(buyConfTotal),
+            sellConfTotal: Math.round(sellConfTotal),
             reason
         };
     }

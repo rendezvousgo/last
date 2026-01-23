@@ -53,13 +53,22 @@ export class AIDataCollector {
         const volumeMA = volumes.reduce((a, b) => a + b, 0) / volumes.length;
         const recentVolume = volumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
         
+        // 매수/매도 압력 계산 (상승 캔들 거래량 vs 하락 캔들 거래량)
+        const recentKlines = klines.slice(-10);
+        const buyVolume = recentKlines.filter(k => k.close > k.open).reduce((sum, k) => sum + k.volume, 0);
+        const sellVolume = recentKlines.filter(k => k.close <= k.open).reduce((sum, k) => sum + k.volume, 0);
+        const totalRecentVolume = buyVolume + sellVolume;
+        
         const volumeProfile = {
             current: klines[klines.length - 1].volume,
             average: volumeMA,
             recent5Average: recentVolume,
             trend: recentVolume > volumeMA ? 'INCREASING' : 'DECREASING',
             // 급등 여부
-            surge: recentVolume > volumeMA * 1.5
+            surge: recentVolume > volumeMA * 1.5,
+            // 매수/매도 압력 (0-100%)
+            buyPressure: totalRecentVolume > 0 ? (buyVolume / totalRecentVolume) * 100 : 50,
+            sellPressure: totalRecentVolume > 0 ? (sellVolume / totalRecentVolume) * 100 : 50
         };
 
         // 주요 가격대 식별 (지지/저항)

@@ -101,10 +101,10 @@ class UpDownTester {
 UP (BUY):   ${stats.buyAccuracy}% (${stats.buyCorrect}/${stats.buyPredictions})
 DOWN (SELL): ${stats.sellAccuracy}% (${stats.sellCorrect}/${stats.sellPredictions})
 
-🎯 전략별 정확도 (Top 10)
+🎯 전략별 정확도 (활성화된 전략)
 ───────────────────────────────────────────────────────────
-${(stats.strategyStats || []).slice(0, 10).map(s => 
-    `[${s.id.toString().padStart(2)}] ${s.name.padEnd(30)} ${s.accuracy.padStart(5)}% (${s.correct}/${s.total})`
+${(stats.strategyStats || []).map(s => 
+    `[${s.id.toString().padStart(2)}] ${s.name.padEnd(35)} ${s.accuracy.padStart(5)}% (${s.correct}/${s.total})`
 ).join('\n') || '(아직 결과 없음)'}
 
 📋 최근 예측 기록
@@ -390,9 +390,8 @@ ${this.results.slice(-10).map(r => {
         console.log(`정확도: ${stats.accuracy}%`);
         
         console.log(`\n📈 방향별 정확도:`);
-        console.log(`   BUY:  ${stats.buyAccuracy}% (${stats.buyCorrect}/${stats.buyPredictions})`);
-        console.log(`   SELL: ${stats.sellAccuracy}% (${stats.sellCorrect}/${stats.sellPredictions})`);
-        console.log(`   HOLD: ${stats.holdAccuracy}% (${stats.holdCorrect}/${stats.holdPredictions})`);
+        console.log(`   UP (BUY):   ${stats.buyAccuracy}% (${stats.buyCorrect}/${stats.buyPredictions})`);
+        console.log(`   DOWN (SELL): ${stats.sellAccuracy}% (${stats.sellCorrect}/${stats.sellPredictions})`);
         
         if (stats.strategyStats && stats.strategyStats.length > 0) {
             console.log(`\n🎯 전략별 정확도:`);
