@@ -1,7 +1,8 @@
 /**
- * 15분 업다운 예측 백테스트 시스템
- * - 15분마다 예측 → 15분 후 결과 검증 → 즉시 로그 저장
+ * 15분 업다운 예측 백테스트 시스템 (1분 간격 분기 방식)
+ * - 1분마다 새 분기 생성 → 각 분기는 15분 후 결과 검증 → 즉시 로그 저장
  * - 프로그램 재시작해도 기존 로그 유지
+ * - 동시에 여러 분기가 대기하며 각각 15분 후 검증됨
  */
 
 import { AIDataCollector } from './src/data/ai-data-collector.js';
@@ -34,7 +35,10 @@ class UpDownTester {
     }
     
     getDateString() {
-        return new Date().toISOString().split('T')[0];
+        // 한국 시간 기준으로 날짜 생성
+        const now = new Date();
+        const koreaTime = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+        return koreaTime.toISOString().split('T')[0];
     }
     
     /**
@@ -132,10 +136,11 @@ ${this.results.slice(-10).map(r => {
         
         this.isRunning = true;
         console.log('═'.repeat(60));
-        console.log('🚀 15분 업다운 테스트 시작');
+        console.log('🚀 15분 업다운 테스트 시작 (1분 간격 분기)');
         console.log('═'.repeat(60));
         console.log(`   심볼: ${this.symbol}`);
-        console.log(`   간격: 15분`);
+        console.log(`   예측 간격: 1분마다 새 분기 생성`);
+        console.log(`   검증 간격: 각 예측 후 15분`);
         console.log(`   로그: ${this.logFile}`);
         console.log(`   기존 결과: ${this.results.length}개`);
         console.log('═'.repeat(60) + '\n');
@@ -143,10 +148,10 @@ ${this.results.slice(-10).map(r => {
         // 즉시 1회 실행
         this.runCycle();
         
-        // 15분마다 실행
+        // 1분마다 실행 (새 분기 생성)
         this.timer = setInterval(() => {
             this.runCycle();
-        }, 15 * 60 * 1000);
+        }, 1 * 60 * 1000);
     }
     
     /**
@@ -167,22 +172,22 @@ ${this.results.slice(-10).map(r => {
     }
     
     /**
-     * 1 사이클 실행: 이전 예측 검증 → 새 예측 생성
+     * 1 사이클 실행: 이전 예측 검증 → 새 예측 생성 (1분마다 새 분기)
      */
     async runCycle() {
         const now = new Date();
         console.log(`\n${'─'.repeat(60)}`);
-        console.log(`⏰ ${now.toLocaleString('ko-KR')}`);
+        console.log(`⏰ ${now.toLocaleString('ko-KR')} - 새 분기 생성`);
         console.log('─'.repeat(60));
         
         try {
             // 1. 현재 가격 조회
             const currentPrice = await this.binance.getCurrentPrice(this.symbol);
             
-            // 2. 이전 예측 검증 (15분 지난 것들)
+            // 2. 이전 예측들 검증 (15분 이상 지난 것들)
             await this.verifyPredictions(currentPrice, now);
             
-            // 3. 데이터 수집 및 새 예측 생성
+            // 3. 데이터 수집 및 새 예측 생성 (1분마다 새 분기)
             const data = await this.collector.collectForAI(this.symbol, '15m');
             
             if (!data || !data.indicators) {
@@ -192,20 +197,28 @@ ${this.results.slice(-10).map(r => {
             
             const analysis = StrategyEngine.analyze(data);
             
-            // 4. 예측 저장
+            // 4. 예측 저장 (각 분기마다 15분 후 예측)
+            // direction(UP/DOWN/NEUTRAL) -> decision(BUY/SELL/HOLD) 변환
+            const decision = analysis.direction === 'UP' ? 'BUY' : 
+                            analysis.direction === 'DOWN' ? 'SELL' : 'HOLD';
+            
+            // matchedUp + matchedDown 합치기
+            const matchedStrategies = [...(analysis.matchedUp || []), ...(analysis.matchedDown || [])];
+            
             const prediction = {
                 timestamp: now.toISOString(),
+                branchId: `${now.getTime()}`, // 분기 ID
                 priceAtPrediction: currentPrice,
-                decision: analysis.decision,
+                decision: decision,
                 confidence: analysis.confidence,
-                matchedStrategies: analysis.matchedStrategies.map(s => ({
+                matchedStrategies: matchedStrategies.map(s => ({
                     id: s.id,
                     name: s.name,
                     direction: s.direction,
                     confidence: s.confidence
                 })),
-                buyCount: analysis.buyCount,
-                sellCount: analysis.sellCount,
+                buyCount: analysis.summary?.upCount || 0,
+                sellCount: analysis.summary?.downCount || 0,
                 indicators: {
                     rsi: data.indicators.rsi,
                     macdHist: data.indicators.macd?.histogram,
@@ -227,7 +240,7 @@ ${this.results.slice(-10).map(r => {
             
             // 6. 즉시 로그 저장!!!
             this.saveImmediately();
-            console.log('💾 로그 저장 완료');
+            console.log(`💾 로그 저장 완료 (대기 중: ${this.predictions.length}개)`);
             
         } catch (error) {
             console.error('❌ 오류:', error.message);
@@ -236,19 +249,36 @@ ${this.results.slice(-10).map(r => {
     
     /**
      * 이전 예측 검증
+     * - 15분~17분 사이만 검증 (정확한 15분 후 가격)
+     * - 17분 이상 지난 것은 버림 (껐다 켠 경우 신뢰 불가)
      */
     async verifyPredictions(currentPrice, now) {
         const toVerify = [];
         const stillPending = [];
+        const toDiscard = [];
         
         for (const pred of this.predictions) {
             const predTime = new Date(pred.timestamp);
             const elapsed = (now - predTime) / 1000 / 60;
             
-            if (elapsed >= 15 && pred.result === null) {
+            if (elapsed >= 15 && elapsed < 17 && pred.result === null) {
+                // 15~17분: 정상 검증
                 toVerify.push(pred);
+            } else if (elapsed >= 17 && pred.result === null) {
+                // 17분 이상: 너무 오래됨, 버림 (껐다 켠 경우)
+                toDiscard.push(pred);
             } else if (pred.result === null) {
+                // 15분 미만: 대기
                 stillPending.push(pred);
+            }
+        }
+        
+        // 버려지는 예측 로그
+        if (toDiscard.length > 0) {
+            console.log(`⚠️ ${toDiscard.length}개 예측 폐기 (17분 초과 - 신뢰 불가)`);
+            for (const pred of toDiscard) {
+                const elapsed = ((now - new Date(pred.timestamp)) / 1000 / 60).toFixed(1);
+                console.log(`   - 분기 #${pred.branchId?.slice(-6)} (${elapsed}분 경과)`);
             }
         }
         
@@ -290,17 +320,19 @@ ${this.results.slice(-10).map(r => {
         const emoji = pred.decision === 'BUY' ? '🟢' : 
                       pred.decision === 'SELL' ? '🔴' : '⚪';
         
-        console.log(`\n📊 새 예측 생성`);
+        const branchLabel = pred.branchId ? ` (분기 #${pred.branchId.slice(-6)})` : '';
+        console.log(`\n📊 새 예측 생성${branchLabel}`);
         console.log(`   💰 현재가: $${pred.priceAtPrediction.toLocaleString()}`);
         console.log(`   📈 Fear & Greed: ${pred.fearGreed || 'N/A'}`);
         console.log(`   📊 RSI: ${pred.indicators.rsi?.toFixed(1)}`);
         
-        if (analysis.matchedStrategies.length > 0) {
-            console.log(`   🎯 매칭 전략: ${analysis.matchedStrategies.map(s => `[${s.id}]`).join(', ')}`);
+        const allMatched = [...(analysis.matchedUp || []), ...(analysis.matchedDown || [])];
+        if (allMatched.length > 0) {
+            console.log(`   🎯 매칭 전략: ${allMatched.map(s => `[${s.id}]`).join(', ')}`);
         }
         
         console.log(`\n   ${emoji} 예측: ${pred.decision} (신뢰도 ${pred.confidence}%)`);
-        console.log(`   ⏳ 15분 후 검증 예정`);
+        console.log(`   ⏳ 15분 후 검증 예정 (${new Date(new Date(pred.timestamp).getTime() + 15 * 60 * 1000).toLocaleTimeString('ko-KR')})`);
     }
     
     /**
@@ -313,7 +345,8 @@ ${this.results.slice(-10).map(r => {
                            pred.result === 'DOWN' ? '📉' : '➡️';
         const correctEmoji = pred.correct ? '✅' : '❌';
         
-        console.log(`\n${correctEmoji} 예측 검증 완료`);
+        const branchLabel = pred.branchId ? ` (분기 #${pred.branchId.slice(-6)})` : '';
+        console.log(`\n${correctEmoji} 예측 검증 완료${branchLabel}`);
         console.log(`   예측 시점: ${new Date(pred.timestamp).toLocaleTimeString('ko-KR')}`);
         console.log(`   ${predEmoji} 예측: ${pred.decision} (${pred.confidence}%)`);
         console.log(`   ${resultEmoji} 실제: ${pred.result} (${pred.priceChangePercent}%)`);
@@ -359,7 +392,12 @@ ${this.results.slice(-10).map(r => {
                     strategyStats[s.id] = { id: s.id, name: s.name, total: 0, correct: 0 };
                 }
                 strategyStats[s.id].total++;
-                if (result.correct) strategyStats[s.id].correct++;
+                // 각 전략의 독립적 정확도 판정
+                // 전략 direction은 'UP'/'DOWN' 값임
+                const strategyCorrect = 
+                    (s.direction === 'UP' && result.result === 'UP') ||
+                    (s.direction === 'DOWN' && result.result === 'DOWN');
+                if (strategyCorrect) strategyStats[s.id].correct++;
             }
         }
         

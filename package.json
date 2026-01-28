@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "test": "node src/test-strategy.js",
     "analyze": "node src/analyze.js",
-    "accuracy": "node accuracy-test.js"
+    "accuracy": "node accuracy-test.js",
+    "updown": "node updown-test.js"
   },
   "keywords": ["trading", "crypto", "ai", "technical-analysis"],
   "author": "",

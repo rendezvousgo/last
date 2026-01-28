@@ -1,7 +1,6 @@
 import { BinanceAPI } from '../data/binance-api.js';
 import { FearGreedAPI } from '../data/fear-greed-api.js';
 import { TechnicalIndicators } from '../indicators/technical-indicators.js';
-import { ProfessionalTradingAI } from '../ai/professional-trading-ai.js';
 
 /**
  * AI에게 제공할 최적의 데이터 수집
@@ -18,9 +17,9 @@ export class AIDataCollector {
     async collectForAI(symbol = 'BTCUSDT', interval = '15m') {
         console.log(`📊 ${symbol} 데이터 수집 중...`);
 
-        // 병렬로 데이터 수집 (60개 캔들 = 15시간 데이터, EMA50 계산에 충분)
+        // 병렬로 데이터 수집 (500개 캔들 = 약 5일 데이터)
         const [klines, currentPrice, stats, fearGreedData] = await Promise.all([
-            this.binance.getKlines(symbol, interval, 60), // 최근 60개 캔들 (15분봉 기준)
+            this.binance.getKlines(symbol, interval, 500),
             this.binance.getCurrentPrice(symbol),
             this.binance.get24hrStats(symbol),
             this.fearGreed.getCurrent()
@@ -43,10 +42,9 @@ export class AIDataCollector {
             lowerWick: Math.min(k.open, k.close) - k.low
         }));
 
-        // 기술적 지표 계산
+        // 기술적 지표 계산 (klines 포함하여 ATR, Stochastic, ADX도 계산)
         const closePrices = this.binance.extractClosePrices(klines);
-        const indicators = TechnicalIndicators.calculateAll(closePrices);
-        const signals = TechnicalIndicators.generateSignals(indicators);
+        const indicators = TechnicalIndicators.calculateAll(closePrices, klines);
 
         // 거래량 분석
         const volumes = klines.map(k => k.volume);
@@ -88,12 +86,11 @@ export class AIDataCollector {
             high24h: stats.highPrice,
             low24h: stats.lowPrice,
             
-            // 캔들 데이터 (최근 100개)
+            // 캔들 데이터
             recentCandles: recentCandles,
             
             // 기술적 지표
             indicators: indicators,
-            signals: signals,
             
             // 거래량 분석
             volumeProfile: volumeProfile,
@@ -202,23 +199,3 @@ export class AIDataCollector {
         console.log('='.repeat(60) + '\n');
     }
 }
-
-/**
- * 사용 예시
- */
-async function example() {
-    const collector = new AIDataCollector();
-    const ai = new ProfessionalTradingAI();
-    
-    // 데이터 수집
-    const data = await collector.collectForAI('BTCUSDT', '15m');
-    collector.printDataSummary(data);
-    
-    // AI 분석 (차트 이미지 없이)
-    const analysis = await ai.analyzeTrade(data);
-    
-    console.log('🤖 AI 분석 결과:');
-    console.log(JSON.stringify(analysis, null, 2));
-}
-
-// example();

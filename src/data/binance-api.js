@@ -16,7 +16,7 @@ export class BinanceAPI {
      * @param {number} limit - 가져올 캔들 개수 (최대 1000)
      * @returns {Promise<Array>} 캔들스틱 데이터
      */
-    async getKlines(symbol = 'BTCUSDT', interval = '1h', limit = 100) {
+    async getKlines(symbol = 'BTCUSDT', interval = '15m', limit = 500) {
         try {
             const response = await axios.get(`${this.baseURL}/api/v3/klines`, {
                 params: {

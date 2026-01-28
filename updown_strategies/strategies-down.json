@@ -1,0 +1,708 @@
+{
+  "timeframe": "15m",
+  "direction": "DOWN",
+  "idRange": "5000-9999",
+  "strategies": [
+    {
+      "id": 5001,
+      "name": "RSI Overbought + MACD Dead Cross",
+      "conditions": [
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 70,
+          "description": "RSI above 70 (overbought)"
+        },
+        {
+          "indicator": "MACD_HISTOGRAM",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 0,
+          "description": "MACD histogram negative"
+        },
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "MACD_SIGNAL",
+          "description": "MACD below signal line (dead cross)"
+        }
+      ]
+    },
+    {
+      "id": 5002,
+      "name": "BB Upper + Volume Surge",
+      "conditions": [
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 80,
+          "description": "Price in BB upper zone"
+        },
+        {
+          "indicator": "VOLUME_SURGE",
+          "timeframe": "15m",
+          "operator": "=",
+          "value": true,
+          "description": "Volume surge detected"
+        }
+      ]
+    },
+    {
+      "id": 5003,
+      "name": "EMA Dead + RSI Reversal Down",
+      "conditions": [
+        {
+          "indicator": "EMA20",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "EMA50",
+          "description": "EMA dead cross"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [55, 65],
+          "description": "RSI between 55-65 (falling from overbought)"
+        },
+        {
+          "indicator": "MACD_HISTOGRAM",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 0,
+          "description": "MACD histogram negative"
+        }
+      ]
+    },
+    {
+      "id": 5004,
+      "name": "MACD Zero Line Dead Cross",
+      "conditions": [
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "NEAR_ZERO",
+          "value": null,
+          "description": "MACD near zero line"
+        },
+        {
+          "indicator": "MACD_HISTOGRAM",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 0,
+          "description": "MACD histogram negative"
+        },
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "MACD_SIGNAL",
+          "description": "MACD < Signal"
+        },
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 100,
+          "description": "MACD below 100 (transitioning)"
+        }
+      ]
+    },
+    {
+      "id": 5005,
+      "name": "RSI Bearish Divergence",
+      "conditions": [
+        {
+          "indicator": "RSI_DIVERGENCE",
+          "timeframe": "15m",
+          "operator": "=",
+          "value": "BEARISH",
+          "description": "RSI bearish divergence detected"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 60,
+          "description": "RSI above 60"
+        }
+      ]
+    },
+    {
+      "id": 5006,
+      "name": "Triple Indicator Sell Consensus",
+      "conditions": [
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 60,
+          "description": "RSI above 60"
+        },
+        {
+          "indicator": "MACD_HISTOGRAM",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 0,
+          "description": "MACD histogram negative"
+        },
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "MACD_SIGNAL",
+          "description": "MACD < Signal"
+        },
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 80,
+          "description": "Price in BB upper zone"
+        }
+      ]
+    },
+    {
+      "id": 5007,
+      "name": "Extreme Greed + RSI Overbought",
+      "conditions": [
+        {
+          "indicator": "FEAR_GREED",
+          "timeframe": "daily",
+          "operator": ">",
+          "value": 75,
+          "description": "Fear & Greed above 75 (extreme greed)"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 65,
+          "description": "RSI above 65"
+        }
+      ]
+    },
+    {
+      "id": 5008,
+      "name": "Downtrend Continuation",
+      "conditions": [
+        {
+          "indicator": "EMA20",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "EMA50",
+          "description": "EMA dead"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [40, 55],
+          "description": "RSI between 40-55 (downtrend, not oversold)"
+        },
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "MACD_SIGNAL",
+          "description": "MACD < Signal"
+        },
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 30,
+          "description": "Not at BB bottom"
+        }
+      ]
+    },
+    {
+      "id": 5009,
+      "name": "MACD Dead + BB Upper",
+      "conditions": [
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "MACD_SIGNAL",
+          "description": "MACD dead cross"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [50, 65],
+          "description": "RSI between 50-65"
+        },
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 60,
+          "description": "Price in BB upper zone"
+        }
+      ]
+    },
+    {
+      "id": 5010,
+      "name": "Resistance Rejection + Volume Surge",
+      "conditions": [
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 80,
+          "description": "Price near BB upper"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 55,
+          "description": "RSI above 55"
+        }
+      ]
+    },
+    {
+      "id": 5011,
+      "name": "Extreme Overbought Zone",
+      "conditions": [
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [60, 70],
+          "description": "RSI between 60-70 (overbought zone)"
+        },
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 70,
+          "description": "BB position above 70"
+        }
+      ]
+    },
+    {
+      "id": 5012,
+      "name": "MACD Histogram Turning Down",
+      "conditions": [
+        {
+          "indicator": "MACD_HISTOGRAM",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [-20, 0],
+          "description": "MACD histogram -20 to 0 (turning down)"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [45, 60],
+          "description": "RSI between 45-60"
+        }
+      ]
+    },
+    {
+      "id": 5013,
+      "name": "EMA Dead + RSI Neutral + BB Upper",
+      "conditions": [
+        {
+          "indicator": "EMA20",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "EMA50",
+          "description": "EMA dead"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [40, 60],
+          "description": "RSI between 40-60"
+        },
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 50,
+          "description": "Price above BB mid"
+        }
+      ]
+    },
+    {
+      "id": 5014,
+      "name": "Triple EMA Bearish Alignment + RSI Down",
+      "conditions": [
+        {
+          "indicator": "EMA20",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "EMA50",
+          "description": "EMA dead"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [45, 65],
+          "description": "RSI between 45-65"
+        },
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "MACD_SIGNAL",
+          "description": "MACD < Signal"
+        },
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 40,
+          "description": "Price heading to BB lower"
+        }
+      ]
+    },
+    {
+      "id": 5015,
+      "name": "Overbought Peak + Momentum Exhaustion",
+      "conditions": [
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [65, 80],
+          "description": "RSI between 65-80 (peak)"
+        },
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "MACD_SIGNAL",
+          "description": "MACD dead"
+        }
+      ]
+    },
+    {
+      "id": 5016,
+      "name": "Fear&Greed Extreme Greed + MACD Dead",
+      "conditions": [
+        {
+          "indicator": "FEAR_GREED",
+          "timeframe": "daily",
+          "operator": ">",
+          "value": 70,
+          "description": "Fear & Greed above 70"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 60,
+          "description": "RSI above 60"
+        },
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "MACD_SIGNAL",
+          "description": "MACD dead"
+        },
+        {
+          "indicator": "MACD_HISTOGRAM",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 0,
+          "description": "MACD histogram negative"
+        }
+      ]
+    },
+    {
+      "id": 5017,
+      "name": "EMA Dead Recent + BB Expanding",
+      "conditions": [
+        {
+          "indicator": "EMA20",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "EMA50",
+          "description": "EMA dead"
+        },
+        {
+          "indicator": "EMA_GAP",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 0.01,
+          "description": "EMA gap below 1% (recent dead)"
+        },
+        {
+          "indicator": "BB_BANDWIDTH",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 3,
+          "description": "BB width above 3% (expanding)"
+        }
+      ]
+    },
+    {
+      "id": 5018,
+      "name": "RSI Falling + MACD Negative + BB Upper",
+      "conditions": [
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [45, 60],
+          "description": "RSI between 45-60"
+        },
+        {
+          "indicator": "MACD_HISTOGRAM",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 0,
+          "description": "MACD histogram negative"
+        },
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 55,
+          "description": "Price in BB upper zone"
+        },
+        {
+          "indicator": "EMA20",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "EMA50",
+          "description": "EMA downtrend"
+        }
+      ]
+    },
+    {
+      "id": 5019,
+      "name": "BB Squeeze Release Breakout Down",
+      "conditions": [
+        {
+          "indicator": "BB_BANDWIDTH",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [2, 4],
+          "description": "BB width 2-4% (squeeze release)"
+        },
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 45,
+          "description": "Price breaking downward"
+        },
+        {
+          "indicator": "MACD_HISTOGRAM",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 0,
+          "description": "MACD histogram negative"
+        }
+      ]
+    },
+    {
+      "id": 5020,
+      "name": "MACD Dead + BB Upper Mid",
+      "conditions": [
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "MACD_SIGNAL",
+          "description": "MACD dead cross"
+        },
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [50, 70],
+          "description": "BB upper-mid zone"
+        }
+      ]
+    },
+    {
+      "id": 5021,
+      "name": "BB Upper Rejection + MACD Weakening",
+      "conditions": [
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 90,
+          "description": "Price at BB extreme upper"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": ">",
+          "value": 60,
+          "description": "RSI above 60"
+        }
+      ]
+    },
+    {
+      "id": 5022,
+      "name": "EMA Downtrend + RSI 50 Break Down",
+      "conditions": [
+        {
+          "indicator": "EMA20",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "EMA50",
+          "description": "EMA downtrend"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [40, 50],
+          "description": "RSI between 40-50 (breaking below 50)"
+        }
+      ]
+    },
+    {
+      "id": 5023,
+      "name": "MACD Dead Cross + RSI 50 Breakdown",
+      "conditions": [
+        {
+          "indicator": "MACD",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "MACD_SIGNAL",
+          "description": "MACD dead cross"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [48, 52],
+          "description": "RSI near 50 line"
+        },
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": 50,
+          "description": "Price below BB mid"
+        }
+      ]
+    },
+    {
+      "id": 5024,
+      "name": "Fear&Greed Falling + RSI",
+      "conditions": [
+        {
+          "indicator": "FEAR_GREED",
+          "timeframe": "daily",
+          "operator": "BETWEEN",
+          "value": [60, 75],
+          "description": "Fear & Greed 60-75 (falling from greed)"
+        },
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [50, 65],
+          "description": "RSI between 50-65"
+        }
+      ]
+    },
+    {
+      "id": 5025,
+      "name": "Multi Indicator Mild Down + EMA",
+      "conditions": [
+        {
+          "indicator": "RSI",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [42, 52],
+          "description": "RSI between 42-52"
+        },
+        {
+          "indicator": "MACD_HISTOGRAM",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [-50, -5],
+          "description": "MACD histogram -50 to -5 (mild bearish)"
+        },
+        {
+          "indicator": "BB_POSITION",
+          "timeframe": "15m",
+          "operator": "BETWEEN",
+          "value": [50, 65],
+          "description": "BB upper-mid zone"
+        },
+        {
+          "indicator": "EMA20",
+          "timeframe": "15m",
+          "operator": "<",
+          "value": "EMA50",
+          "description": "EMA downtrend"
+        }
+      ]
+    }
+  ],
+  "indicators": {
+    "RSI": {
+      "description": "Relative Strength Index",
+      "period": 14,
+      "ranges": {
+        "oversold": "<30",
+        "neutral": "30-70",
+        "overbought": ">70"
+      }
+    },
+    "MACD": {
+      "description": "Moving Average Convergence Divergence",
+      "fastPeriod": 12,
+      "slowPeriod": 26,
+      "signalPeriod": 9
+    },
+    "MACD_HISTOGRAM": {
+      "description": "MACD - Signal Line"
+    },
+    "EMA20": {
+      "description": "20-period Exponential Moving Average",
+      "period": 20
+    },
+    "EMA50": {
+      "description": "50-period Exponential Moving Average",
+      "period": 50
+    },
+    "BB_POSITION": {
+      "description": "Price position within Bollinger Bands (0-100)",
+      "period": 20,
+      "stdDev": 2
+    },
+    "BB_BANDWIDTH": {
+      "description": "Bollinger Band width (%)"
+    },
+    "FEAR_GREED": {
+      "description": "Fear & Greed Index (0-100)",
+      "source": "alternative.me"
+    },
+    "VOLUME_SURGE": {
+      "description": "Volume surge detection",
+      "threshold": "150% of average"
+    }
+  },
+  "operators": {
+    ">": "greater than",
+    "<": "less than",
+    ">=": "greater than or equal",
+    "<=": "less than or equal",
+    "=": "equal",
+    "BETWEEN": "within range (inclusive)",
+    "NEAR": "near value (within tolerance)",
+    "NEAR_ZERO": "near zero line"
+  }
+}
