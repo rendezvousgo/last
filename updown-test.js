@@ -6,29 +6,39 @@
  */
 
 import { AIDataCollector } from './src/data/ai-data-collector.js';
-import { StrategyEngine } from './src/strategies/strategy-engine.js';
+import { DynamicStrategyEngine } from './src/strategies/dynamic-strategy-engine.js';
 import { BinanceAPI } from './src/data/binance-api.js';
 import fs from 'fs';
 import path from 'path';
 
 class UpDownTester {
+    /**
+     * 전략 이름에서 ID 추출 (예: "[UP-01] Strategy Name" → "01")
+     */
+    static parseStrategyId(name) {
+        if (!name) return '??';
+        // 패턴: [UP-01], [DOWN-12], [5m-UP-03] 등
+        const match = name.match(/\[(?:[^\]]*-)?(\d+)\]/);
+        return match ? match[1] : '??';
+    }
+
     constructor(options = {}) {
         this.symbol = options.symbol || 'BTCUSDT';
         this.collector = new AIDataCollector();
         this.binance = new BinanceAPI();
+        this.dynamicEngine = new DynamicStrategyEngine();
         
         this.isRunning = false;
+        this.isCycleRunning = false;
         this.timer = null;
+        
+        // 세션 시작 시간 (summary 분리용)
+        this.sessionStartTime = new Date().toISOString();
         
         // 로그 파일 설정
         this.logDir = options.logDir || './logs';
-        this.logFile = path.join(this.logDir, `updown-test-${this.getDateString()}.json`);
-        this.summaryFile = path.join(this.logDir, `updown-summary-${this.getDateString()}.txt`);
-        
-        // 로그 디렉토리 생성
-        if (!fs.existsSync(this.logDir)) {
-            fs.mkdirSync(this.logDir, { recursive: true });
-        }
+        this.currentDateString = null;
+        this.updateLogFiles(true);
         
         // 기존 로그 불러오기
         this.loadExistingData();
@@ -36,24 +46,116 @@ class UpDownTester {
     
     getDateString() {
         // 한국 시간 기준으로 날짜 생성
-        const now = new Date();
-        const koreaTime = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-        return koreaTime.toISOString().split('T')[0];
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+    }
+
+    /**
+     * 날짜 변경 시 로그 파일 갱신
+     */
+    updateLogFiles(initial = false) {
+        const dateString = this.getDateString();
+        if (this.currentDateString === dateString) return;
+
+        if (!initial && this.logFile && this.summaryFile) {
+            this.saveToFilesSync(this.logFile, this.summaryFile);
+        }
+
+        this.currentDateString = dateString;
+        if (!fs.existsSync(this.logDir)) {
+            fs.mkdirSync(this.logDir, { recursive: true });
+        }
+
+        this.logFile = path.join(this.logDir, `updown-test-${dateString}.json`);
+        this.summaryFile = path.join(this.logDir, `updown-summary-${dateString}.txt`);
+
+        if (!initial) {
+            console.log(`📅 로그 파일 변경: ${this.logFile}`);
+        }
+
+        // 날짜가 바뀌면 새 로그로 전환 (기존 데이터 혼합 방지)
+        if (!initial) {
+            this.loadExistingData();
+        }
     }
     
     /**
-     * 기존 로그 데이터 불러오기
+     * 기존 로그 데이터 불러오기 (JSON 합침용)
      */
     loadExistingData() {
         this.predictions = [];
-        this.results = [];
+        this.results = [];           // 전체 결과 (JSON 저장용)
+        this.sessionResults = [];    // 현재 세션 결과 (summary용)
+        this.sessionPredictions = []; // 현재 세션 예측
+        
+        // 전략별 통계 실시간 누적 (메모리 절약용)
+        this.strategyStatsAll = {};      // 오늘 전체
+        this.strategyStatsSession = {};  // 현재 세션
         
         if (fs.existsSync(this.logFile)) {
             try {
                 const data = JSON.parse(fs.readFileSync(this.logFile, 'utf8'));
-                this.predictions = data.pendingPredictions || [];
+                // 기존 대기 중 예측은 버림 (17분 초과로 신뢰 불가)
+                this.predictions = [];
                 this.results = data.completedResults || [];
-                console.log(`📂 기존 로그 불러옴: ${this.results.length}개 결과, ${this.predictions.length}개 대기 중`);
+                console.log(`📂 기존 로그 불러옴: ${this.results.length}개 결과 (JSON 합침용)`);
+                
+                // 기존 결과에서 전략 통계 복원 (메모리 효율적)
+                for (const r of this.results) {
+                    // 새 형식 (matchedUpNames, matchedDownNames)
+                    if (r.matchedUpNames) {
+                        for (const name of r.matchedUpNames) {
+                            if (!this.strategyStatsAll[name]) {
+                                this.strategyStatsAll[name] = { 
+                                    direction: 'UP', 
+                                    name, 
+                                    id: UpDownTester.parseStrategyId(name),
+                                    total: 0, 
+                                    correct: 0 
+                                };
+                            }
+                            this.strategyStatsAll[name].total++;
+                            if (r.result === 'UP') this.strategyStatsAll[name].correct++;
+                        }
+                    }
+                    if (r.matchedDownNames) {
+                        for (const name of r.matchedDownNames) {
+                            if (!this.strategyStatsAll[name]) {
+                                this.strategyStatsAll[name] = { 
+                                    direction: 'DOWN', 
+                                    name, 
+                                    id: UpDownTester.parseStrategyId(name),
+                                    total: 0, 
+                                    correct: 0 
+                                };
+                            }
+                            this.strategyStatsAll[name].total++;
+                            if (r.result === 'DOWN') this.strategyStatsAll[name].correct++;
+                        }
+                    }
+                    // 레거시 형식 호환 (matchedStrategies, matchedUpIds 등)
+                    if (r.matchedStrategies) {
+                        for (const s of r.matchedStrategies) {
+                            const key = s.name || `${s.direction}:${s.id}`;
+                            if (!this.strategyStatsAll[key]) {
+                                this.strategyStatsAll[key] = { 
+                                    direction: s.direction, 
+                                    name: key, 
+                                    id: s.id || UpDownTester.parseStrategyId(key),
+                                    total: 0, 
+                                    correct: 0 
+                                };
+                            }
+                            this.strategyStatsAll[key].total++;
+                            const strategyCorrect = 
+                                (s.direction === 'UP' && r.result === 'UP') ||
+                                (s.direction === 'DOWN' && r.result === 'DOWN');
+                            if (strategyCorrect) this.strategyStatsAll[key].correct++;
+                        }
+                        delete r.matchedStrategies;
+                    }
+                }
+                console.log(`📊 기존 통계 복원: ${Object.keys(this.strategyStatsAll).length}개 전략`);
+                console.log(`🆕 새 세션 시작: ${new Date(this.sessionStartTime).toLocaleString('ko-KR')}`);
             } catch (e) {
                 console.log('📂 새 로그 파일 시작');
             }
@@ -65,55 +167,61 @@ class UpDownTester {
     /**
      * 즉시 로그 저장 (매 사이클마다 호출)
      */
-    saveImmediately() {
-        const data = {
-            symbol: this.symbol,
-            startTime: this.results[0]?.timestamp || this.predictions[0]?.timestamp || new Date().toISOString(),
-            lastUpdate: new Date().toISOString(),
-            stats: this.getStats(),
-            pendingPredictions: this.predictions,
-            completedResults: this.results
-        };
-        
-        // JSON 저장 (동기적으로)
-        fs.writeFileSync(this.logFile, JSON.stringify(data, null, 2), 'utf8');
-        
-        // 요약 텍스트 저장
-        this.saveSummary();
+    async saveImmediately() {
+        this.updateLogFiles();
+        await this.saveToFiles(this.logFile, this.summaryFile);
     }
     
     /**
      * 요약 파일 저장
      */
-    saveSummary() {
-        const stats = this.getStats();
-        const summary = `
+    async saveSummary() {
+        const summary = this.buildSummary();
+        await fs.promises.writeFile(this.summaryFile, summary, 'utf8');
+    }
+
+    buildSummary() {
+        // 현재 세션 데이터만 사용 (useSessionStats=true로 세션 전략 통계 사용)
+        const sessionStats = this.getStats(this.sessionResults, true);
+        const allStats = this.getStats(this.results, false);
+        return `
 ═══════════════════════════════════════════════════════════
-15분 업다운 테스트 결과 요약
+15분 업다운 테스트 결과 요약 (현재 세션)
 ═══════════════════════════════════════════════════════════
 심볼: ${this.symbol}
+세션 시작: ${new Date(this.sessionStartTime).toLocaleString('ko-KR')}
 최종 업데이트: ${new Date().toLocaleString('ko-KR')}
 
-📊 전체 통계
+📊 현재 세션 통계
 ───────────────────────────────────────────────────────────
-총 예측: ${stats.total}회
-정확: ${stats.correct}회
-정확도: ${stats.accuracy}%
+총 예측: ${sessionStats.total}회
+정확: ${sessionStats.correct}회
+정확도: ${sessionStats.accuracy}%
 
-📈 방향별 정확도
+📊 오늘 전체 통계 (JSON 누적)
 ───────────────────────────────────────────────────────────
-UP (BUY):   ${stats.buyAccuracy}% (${stats.buyCorrect}/${stats.buyPredictions})
-DOWN (SELL): ${stats.sellAccuracy}% (${stats.sellCorrect}/${stats.sellPredictions})
+총 예측: ${allStats.total}회
+정확: ${allStats.correct}회
+정확도: ${allStats.accuracy}%
 
-🎯 전략별 정확도 (활성화된 전략)
+📈 방향별 정확도 (현재 세션)
 ───────────────────────────────────────────────────────────
-${(stats.strategyStats || []).map(s => 
-    `[${s.id.toString().padStart(2)}] ${s.name.padEnd(35)} ${s.accuracy.padStart(5)}% (${s.correct}/${s.total})`
-).join('\n') || '(아직 결과 없음)'}
+UP (BUY):   ${sessionStats.buyAccuracy === 'N/A' ? 'N/A' : `${sessionStats.buyAccuracy}%`} (${sessionStats.buyCorrect}/${sessionStats.buyPredictions})
+DOWN (SELL): ${sessionStats.sellAccuracy === 'N/A' ? 'N/A' : `${sessionStats.sellAccuracy}%`} (${sessionStats.sellCorrect}/${sessionStats.sellPredictions})
 
-📋 최근 예측 기록
+🎯 전략별 정확도 (현재 세션) - 총 ${(sessionStats.strategyStats || []).length}개 전략
 ───────────────────────────────────────────────────────────
-${this.results.slice(-10).map(r => {
+${(sessionStats.strategyStats || []).map(s => {
+    const dirLabel = s.direction === 'UP' ? 'UP  ' : s.direction === 'DOWN' ? 'DOWN' : '    ';
+    const idStr = String(s.id || '??').padStart(2);
+    const nameStr = (s.name || 'Unknown').substring(0, 40).padEnd(40);
+    const accStr = String(s.accuracy || '0').padStart(5);
+    return `[${dirLabel}-${idStr}] ${nameStr} ${accStr}% (${s.correct}/${s.total})`;
+}).join('\n') || '(아직 결과 없음)'}
+
+📋 최근 예측 기록 (현재 세션)
+───────────────────────────────────────────────────────────
+${this.sessionResults.slice(-10).map(r => {
     const time = new Date(r.timestamp).toLocaleTimeString('ko-KR');
     const emoji = r.correct ? '✅' : '❌';
     const dirEmoji = r.decision === 'BUY' ? '🟢' : r.decision === 'SELL' ? '🔴' : '⚪';
@@ -122,7 +230,38 @@ ${this.results.slice(-10).map(r => {
 }).join('\n') || '(아직 결과 없음)'}
 ═══════════════════════════════════════════════════════════
 `;
-        fs.writeFileSync(this.summaryFile, summary, 'utf8');
+    }
+
+    async saveToFiles(logFile, summaryFile) {
+        // JSON 로그는 너무 커서 저장하지 않음 (TXT 요약만 저장)
+        // const data = {
+        //     symbol: this.symbol,
+        //     startTime: this.results[0]?.timestamp || this.predictions[0]?.timestamp || new Date().toISOString(),
+        //     lastUpdate: new Date().toISOString(),
+        //     stats: this.getStats(),
+        //     pendingPredictions: this.predictions,
+        //     completedResults: this.results
+        // };
+        // await fs.promises.writeFile(logFile, JSON.stringify(data, null, 2), 'utf8');
+        await fs.promises.writeFile(summaryFile, this.buildSummary(), 'utf8');
+    }
+
+    saveToFilesSync(logFile, summaryFile) {
+        try {
+            // JSON 로그는 너무 커서 저장하지 않음 (TXT 요약만 저장)
+            // const data = {
+            //     symbol: this.symbol,
+            //     startTime: this.results[0]?.timestamp || this.predictions[0]?.timestamp || new Date().toISOString(),
+            //     lastUpdate: new Date().toISOString(),
+            //     stats: this.getStats(),
+            //     pendingPredictions: this.predictions,
+            //     completedResults: this.results
+            // };
+            // fs.writeFileSync(logFile, JSON.stringify(data, null, 2), 'utf8');
+            fs.writeFileSync(summaryFile, this.buildSummary(), 'utf8');
+        } catch (error) {
+            console.error('❌ 로그 저장 실패:', error.message);
+        }
     }
     
     /**
@@ -157,7 +296,7 @@ ${this.results.slice(-10).map(r => {
     /**
      * 테스터 정지
      */
-    stop() {
+    async stop() {
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
@@ -165,7 +304,7 @@ ${this.results.slice(-10).map(r => {
         this.isRunning = false;
         
         // 최종 저장
-        this.saveImmediately();
+        await this.saveImmediately();
         this.printFinalStats();
         
         console.log('\n🛑 테스터 정지');
@@ -175,6 +314,12 @@ ${this.results.slice(-10).map(r => {
      * 1 사이클 실행: 이전 예측 검증 → 새 예측 생성 (1분마다 새 분기)
      */
     async runCycle() {
+        if (this.isCycleRunning) {
+            console.log('⚠️ 이전 사이클이 아직 실행 중입니다. 이번 분기는 건너뜁니다.');
+            return;
+        }
+        this.isCycleRunning = true;
+        this.updateLogFiles();
         const now = new Date();
         console.log(`\n${'─'.repeat(60)}`);
         console.log(`⏰ ${now.toLocaleString('ko-KR')} - 새 분기 생성`);
@@ -195,30 +340,97 @@ ${this.results.slice(-10).map(r => {
                 return;
             }
             
-            const analysis = StrategyEngine.analyze(data);
+            // 동적 전략 엔진으로 37만개 전략 테스트
+            const candles = data.recentCandles || [];
+            const closes = candles.map(c => c.close);
+            const highs = candles.map(c => c.high);
+            const lows = candles.map(c => c.low);
+            const volumes = candles.map(c => c.volume);
+            const opens = candles.map(c => c.open);
+            const buyVolumes = candles.map(c => c.takerBuyVolume ?? null);
+            const sellVolumes = candles.map(c => c.takerSellVolume ?? null);
+
+            const vwmaPeriod = 20;
+            let vwma = null;
+            if (closes.length >= vwmaPeriod && volumes.length >= vwmaPeriod) {
+                let sumPV = 0;
+                let sumV = 0;
+                for (let i = closes.length - vwmaPeriod; i < closes.length; i++) {
+                    sumPV += closes[i] * volumes[i];
+                    sumV += volumes[i];
+                }
+                vwma = sumV !== 0 ? sumPV / sumV : null;
+            }
+
+            const marketData = {
+                ...data.indicators,
+                closes,
+                highs,
+                lows,
+                volumes,
+                opens,
+                buyVolumes,
+                sellVolumes,
+                dailyHigh: data.dailyOHLC?.high ?? null,
+                dailyLow: data.dailyOHLC?.low ?? null,
+                dailyClose: data.dailyOHLC?.close ?? null,
+                price: data.currentPrice ?? data.indicators?.price,
+                close: data.indicators?.close ?? closes[closes.length - 1],
+                prevClose: data.indicators?.prevClose ?? closes[closes.length - 2],
+                prev2Close: data.indicators?.prev2Close ?? closes[closes.length - 3],
+                prevPrice: data.indicators?.prevClose ?? closes[closes.length - 2],
+                bb: data.indicators?.bollingerBands ?? data.indicators?.bb,
+                vwma,
+                keyLevels: data.keyLevels,
+                support: data.keyLevels?.nearestSupport ?? null,
+                resistance: data.keyLevels?.nearestResistance ?? null,
+                fearGreed: data.fearGreed?.value ?? data.indicators?.fearGreed ?? 50,
+                fearGreedIndex: data.fearGreed?.value ?? data.indicators?.fearGreedIndex ?? 50,
+                prevFearGreed: data.indicators?.prevFearGreed ?? null,
+                // 멀티 타임프레임 데이터 추가
+                indicatorsByTimeframe: data.indicatorsByTimeframe || {},
+                candlesByTimeframe: data.candlesByTimeframe || {},
+                supportedTimeframes: data.supportedTimeframes || ['15m'],
+                __indicatorCache: new Map(),
+                __prevIndicatorCache: new Map(),
+                __signalCache: new Map()
+            };
+
+            // 멀티 타임프레임 모드로 분석
+            // - 다른 타임프레임 지표 조합 허용 (예: [5m]RSI + [15m]MACD)
+            // - 같은 지표의 다른 타임프레임 조합 불가 (예: [5m]RSI + [15m]RSI)
+            const analysis = this.dynamicEngine.analyze(marketData, { 
+                multiTimeframe: true,
+                timeframes: data.supportedTimeframes || ['1m', '5m', '15m', '1h']
+            });
+            
+            // UP/DOWN 판단 (매칭된 전략 수로 결정)
+            const direction = analysis.upMatched > analysis.downMatched ? 'UP' : 
+                             analysis.downMatched > analysis.upMatched ? 'DOWN' : 'NEUTRAL';
             
             // 4. 예측 저장 (각 분기마다 15분 후 예측)
-            // direction(UP/DOWN/NEUTRAL) -> decision(BUY/SELL/HOLD) 변환
-            const decision = analysis.direction === 'UP' ? 'BUY' : 
-                            analysis.direction === 'DOWN' ? 'SELL' : 'HOLD';
+            const decision = direction === 'UP' ? 'BUY' : 
+                            direction === 'DOWN' ? 'SELL' : 'HOLD';
             
-            // matchedUp + matchedDown 합치기
-            const matchedStrategies = [...(analysis.matchedUp || []), ...(analysis.matchedDown || [])];
+            // 메모리 최적화: 이름 배열만 저장 (객체 생성 최소화)
+            const upNames = analysis.upNames || [];
+            const downNames = analysis.downNames || [];
             
             const prediction = {
                 timestamp: now.toISOString(),
                 branchId: `${now.getTime()}`, // 분기 ID
                 priceAtPrediction: currentPrice,
                 decision: decision,
-                confidence: analysis.confidence,
-                matchedStrategies: matchedStrategies.map(s => ({
-                    id: s.id,
-                    name: s.name,
-                    direction: s.direction,
-                    confidence: s.confidence
-                })),
-                buyCount: analysis.summary?.upCount || 0,
-                sellCount: analysis.summary?.downCount || 0,
+                confidence: analysis.totalTested > 0
+                    ? Math.abs(analysis.upMatched - analysis.downMatched) / analysis.totalTested
+                    : 0,
+                totalTested: analysis.totalTested,
+                // 메모리 최적화: 이름 배열만 저장 (전략 정보는 이름에 포함)
+                matchedUpNames: upNames,
+                matchedDownNames: downNames,
+                buyCount: analysis.upMatched,
+                sellCount: analysis.downMatched,
+                multiTimeframe: analysis.multiTimeframe,
                 indicators: {
                     rsi: data.indicators.rsi,
                     macdHist: data.indicators.macd?.histogram,
@@ -234,23 +446,31 @@ ${this.results.slice(-10).map(r => {
             };
             
             this.predictions.push(prediction);
+            this.sessionPredictions.push(prediction);
             
             // 5. 예측 출력
+            console.log(`\n📊 동적 전략 분석 결과:`);
+            console.log(`   총 테스트: ${analysis.totalTested.toLocaleString()}개`);
+            console.log(`   UP 매칭: ${analysis.upMatched}개`);
+            console.log(`   DOWN 매칭: ${analysis.downMatched}개`);
+            console.log(`   결정: ${decision} (신뢰도: ${(prediction.confidence * 100).toFixed(2)}%)`);
             this.printPrediction(prediction, analysis);
             
             // 6. 즉시 로그 저장!!!
-            this.saveImmediately();
+            await this.saveImmediately();
             console.log(`💾 로그 저장 완료 (대기 중: ${this.predictions.length}개)`);
             
         } catch (error) {
             console.error('❌ 오류:', error.message);
+        } finally {
+            this.isCycleRunning = false;
         }
     }
     
     /**
      * 이전 예측 검증
-     * - 15분~17분 사이만 검증 (정확한 15분 후 가격)
-     * - 17분 이상 지난 것은 버림 (껐다 켠 경우 신뢰 불가)
+     * - 15분~20분 사이만 검증 (정확한 15분 후 가격)
+     * - 20분 이상 지난 것은 버림 (껐다 켠 경우 신뢰 불가)
      */
     async verifyPredictions(currentPrice, now) {
         const toVerify = [];
@@ -261,13 +481,13 @@ ${this.results.slice(-10).map(r => {
             const predTime = new Date(pred.timestamp);
             const elapsed = (now - predTime) / 1000 / 60;
             
-            if (elapsed >= 15 && elapsed < 17 && pred.result === null) {
-                // 15~17분: 정상 검증
+            if (elapsed >= 15 && elapsed < 20 && pred.result == null) {
+                // 15~20분: 정상 검증 (아직 stillPending에 넣지 않음)
                 toVerify.push(pred);
-            } else if (elapsed >= 17 && pred.result === null) {
-                // 17분 이상: 너무 오래됨, 버림 (껐다 켠 경우)
+            } else if (elapsed >= 20 && pred.result == null) {
+                // 20분 이상: 너무 오래됨, 버림 (껐다 켠 경우)
                 toDiscard.push(pred);
-            } else if (pred.result === null) {
+            } else if (pred.result == null) {
                 // 15분 미만: 대기
                 stillPending.push(pred);
             }
@@ -275,42 +495,156 @@ ${this.results.slice(-10).map(r => {
         
         // 버려지는 예측 로그
         if (toDiscard.length > 0) {
-            console.log(`⚠️ ${toDiscard.length}개 예측 폐기 (17분 초과 - 신뢰 불가)`);
+            console.log(`⚠️ ${toDiscard.length}개 예측 폐기 (20분 초과 - 신뢰 불가)`);
             for (const pred of toDiscard) {
                 const elapsed = ((now - new Date(pred.timestamp)) / 1000 / 60).toFixed(1);
                 console.log(`   - 분기 #${pred.branchId?.slice(-6)} (${elapsed}분 경과)`);
             }
         }
         
+        // 검증 성공한 예측만 제거하기 위해 일단 대기 목록만 갱신
+        this.predictions = stillPending;
+        
+        // 검증 실패 시 다시 추가하기 위한 배열
+        const verifyFailed = [];
+
         for (const pred of toVerify) {
-            pred.priceAfter15m = currentPrice;
-            pred.priceChange = currentPrice - pred.priceAtPrediction;
-            pred.priceChangePercent = ((currentPrice - pred.priceAtPrediction) / pred.priceAtPrediction * 100).toFixed(3);
-            
-            if (pred.priceChange > 0) {
-                pred.result = 'UP';
-            } else if (pred.priceChange < 0) {
-                pred.result = 'DOWN';
-            } else {
-                pred.result = 'FLAT';
+            try {
+                const targetTime = new Date(new Date(pred.timestamp).getTime() + 15 * 60 * 1000);
+                const priceAtTarget = await this.getPriceAtTime(targetTime);
+                
+                // 가격 조회 실패 시 다음 사이클에서 재시도
+                if (priceAtTarget === null) {
+                    console.log(`⚠️ 분기 #${pred.branchId?.slice(-6)} 가격 조회 실패 - 재시도 예정`);
+                    verifyFailed.push(pred);
+                    continue;
+                }
+                
+                pred.priceAfter15m = priceAtTarget;
+                pred.priceChange = priceAtTarget - pred.priceAtPrediction;
+                pred.priceChangePercent = Number(((priceAtTarget - pred.priceAtPrediction) / pred.priceAtPrediction * 100).toFixed(4));
+                
+                if (pred.priceChange > 0) {
+                    pred.result = 'UP';
+                } else if (pred.priceChange < 0) {
+                    pred.result = 'DOWN';
+                } else {
+                    pred.result = 'FLAT';
+                }
+                
+                // 정확도 판정 로직
+                // - BUY는 UP이면 정답
+                // - SELL은 DOWN이면 정답
+                // - HOLD는 변동이 미미하면 (0.05% 미만) 정답 (실질적으로 횟보 방지)
+                const absChangePercent = Math.abs(pred.priceChangePercent);
+                const HOLD_THRESHOLD = 0.05; // 0.05% 미만 변동은 횟보로 간주
+                
+                if (pred.decision === 'BUY' && pred.result === 'UP') {
+                    pred.correct = true;
+                } else if (pred.decision === 'SELL' && pred.result === 'DOWN') {
+                    pred.correct = true;
+                } else if (pred.decision === 'HOLD' && absChangePercent < HOLD_THRESHOLD) {
+                    // HOLD인데 변동이 HOLD_THRESHOLD 미만이면 정답으로 처리
+                    pred.correct = true;
+                } else {
+                    pred.correct = false;
+                }
+                
+                this.results.push(pred);
+                this.sessionResults.push(pred);
+                
+                // 전략별 통계 실시간 누적 (메모리 절약 핵심)
+                this.updateStrategyStats(pred);
+                
+                // 메모리 해제: 통계 누적 후 이름 배열 삭제
+                delete pred.matchedUpNames;
+                delete pred.matchedDownNames;
+                
+                this.printVerification(pred);
+                
+                // 검증 완료 즉시 저장
+                await this.saveImmediately();
+            } catch (error) {
+                console.error(`❌ 검증 오류 (분기 #${pred.branchId?.slice(-6)}):`, error.message);
+                verifyFailed.push(pred);
             }
-            
-            if (pred.decision === 'BUY' && pred.result === 'UP') {
-                pred.correct = true;
-            } else if (pred.decision === 'SELL' && pred.result === 'DOWN') {
-                pred.correct = true;
-            } else {
-                pred.correct = false;
-            }
-            
-            this.results.push(pred);
-            this.printVerification(pred);
-            
-            // 검증 완료 즉시 저장!!!
-            this.saveImmediately();
         }
         
-        this.predictions = stillPending;
+        // 검증 실패한 예측은 다시 대기 목록에 추가
+        if (verifyFailed.length > 0) {
+            this.predictions.push(...verifyFailed);
+            console.log(`🔄 ${verifyFailed.length}개 예측 재검증 대기`);
+        }
+    }
+
+    /**
+     * 특정 시점의 가격 조회 (1분 캔들 기준)
+     * @param {Date} targetTime - 조회할 시점
+     * @param {number} retryCount - 재시도 횟수 (내부용)
+     * @returns {number|null} 해당 시점의 종가, 실패 시 null
+     */
+    async getPriceAtTime(targetTime, retryCount = 0) {
+        const MAX_RETRIES = 3;
+        
+        try {
+            const targetMs = targetTime.getTime();
+            const now = Date.now();
+            
+            // 미래 시점은 조회 불가
+            if (targetMs > now) {
+                return null;
+            }
+            
+            // 목표 시점 포함하여 앞뒤로 충분한 범위 조회
+            const startTime = targetMs - 2 * 60 * 1000;
+            const endTime = targetMs + 2 * 60 * 1000;
+
+            const klines = await this.binance.getKlines(this.symbol, '1m', 5, {
+                startTime,
+                endTime
+            });
+
+            if (!klines || klines.length === 0) {
+                // 재시도 가능
+                if (retryCount < MAX_RETRIES) {
+                    console.warn(`가격 조회 재시도 ${retryCount + 1}/${MAX_RETRIES}: ${targetTime.toISOString()}`);
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+                    return this.getPriceAtTime(targetTime, retryCount + 1);
+                }
+                console.warn(`가격 조회 실패: ${targetTime.toISOString()} - 데이터 없음 (${MAX_RETRIES}회 재시도 후)`);
+                return null;
+            }
+
+            // 정확히 해당 시점의 캔들 찾기 (1분 캔들의 종가 사용)
+            const candle = klines.find(k => targetMs >= k.openTime && targetMs < k.openTime + 60 * 1000);
+            
+            if (candle) {
+                return candle.close;
+            }
+            
+            // 정확한 캔들이 없으면 가장 가까운 이전 캔들 사용
+            const beforeCandles = klines.filter(k => k.openTime <= targetMs);
+            if (beforeCandles.length > 0) {
+                return beforeCandles[beforeCandles.length - 1].close;
+            }
+            
+            // 그래도 없으면 가장 빠른 캔들 사용
+            if (klines.length > 0) {
+                console.warn(`가격 조회: ${targetTime.toISOString()} - 가장 가까운 캔들 사용`);
+                return klines[0].close;
+            }
+            
+            console.warn(`가격 조회 실패: ${targetTime.toISOString()} 적합한 캔들 없음`);
+            return null;
+        } catch (error) {
+            if (retryCount < MAX_RETRIES) {
+                console.warn(`가격 조회 재시도 ${retryCount + 1}/${MAX_RETRIES}: ${error.message}`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+                return this.getPriceAtTime(targetTime, retryCount + 1);
+            }
+            console.error('가격 시점 조회 오류:', error.message);
+            return null;
+        }
     }
     
     /**
@@ -323,15 +657,18 @@ ${this.results.slice(-10).map(r => {
         const branchLabel = pred.branchId ? ` (분기 #${pred.branchId.slice(-6)})` : '';
         console.log(`\n📊 새 예측 생성${branchLabel}`);
         console.log(`   💰 현재가: $${pred.priceAtPrediction.toLocaleString()}`);
-        console.log(`   📈 Fear & Greed: ${pred.fearGreed || 'N/A'}`);
+        console.log(`   📈 Fear & Greed: ${pred.fearGreed ?? 'N/A'}`);
         console.log(`   📊 RSI: ${pred.indicators.rsi?.toFixed(1)}`);
         
-        const allMatched = [...(analysis.matchedUp || []), ...(analysis.matchedDown || [])];
-        if (allMatched.length > 0) {
-            console.log(`   🎯 매칭 전략: ${allMatched.map(s => `[${s.id}]`).join(', ')}`);
+        // 메모리 최적화: 이름 배열만 사용
+        const upNames = analysis.upNames || [];
+        const downNames = analysis.downNames || [];
+        const totalMatched = upNames.length + downNames.length;
+        if (totalMatched > 0) {
+            console.log(`   🎯 매칭 전략: UP=${upNames.length}개, DOWN=${downNames.length}개`);
         }
         
-        console.log(`\n   ${emoji} 예측: ${pred.decision} (신뢰도 ${pred.confidence}%)`);
+        console.log(`\n   ${emoji} 예측: ${pred.decision} (신뢰도 ${(pred.confidence * 100).toFixed(2)}%)`);
         console.log(`   ⏳ 15분 후 검증 예정 (${new Date(new Date(pred.timestamp).getTime() + 15 * 60 * 1000).toLocaleTimeString('ko-KR')})`);
     }
     
@@ -348,19 +685,22 @@ ${this.results.slice(-10).map(r => {
         const branchLabel = pred.branchId ? ` (분기 #${pred.branchId.slice(-6)})` : '';
         console.log(`\n${correctEmoji} 예측 검증 완료${branchLabel}`);
         console.log(`   예측 시점: ${new Date(pred.timestamp).toLocaleTimeString('ko-KR')}`);
-        console.log(`   ${predEmoji} 예측: ${pred.decision} (${pred.confidence}%)`);
-        console.log(`   ${resultEmoji} 실제: ${pred.result} (${pred.priceChangePercent}%)`);
+        console.log(`   ${predEmoji} 예측: ${pred.decision} (${(pred.confidence * 100).toFixed(2)}%)`);
+        console.log(`   ${resultEmoji} 실제: ${pred.result} (${pred.priceChangePercent.toFixed(3)}%)`);
         console.log(`   💰 ${pred.priceAtPrediction.toFixed(0)} → ${pred.priceAfter15m.toFixed(0)} ($${pred.priceChange.toFixed(0)})`);
         
-        const stats = this.getStats();
-        console.log(`   📊 현재 정확도: ${stats.accuracy}% (${stats.correct}/${stats.total})`);
+        const sessionStats = this.getStats(this.sessionResults);
+        const allStats = this.getStats(this.results);
+        console.log(`   📊 세션 정확도: ${sessionStats.accuracy}% (${sessionStats.correct}/${sessionStats.total})`);
+        console.log(`   📊 전체 정확도: ${allStats.accuracy}% (${allStats.correct}/${allStats.total})`);
     }
     
     /**
-     * 통계 계산
+     * 통계 계산 (결과 배열을 파라미터로 받음)
      */
-    getStats() {
-        const total = this.results.length;
+    getStats(resultsArray = null, useSessionStats = false) {
+        const results = resultsArray || this.results;
+        const total = results.length;
         if (total === 0) {
             return { 
                 total: 0, correct: 0, accuracy: '0',
@@ -370,72 +710,117 @@ ${this.results.slice(-10).map(r => {
             };
         }
         
-        const correct = this.results.filter(r => r.correct).length;
+        const correct = results.filter(r => r.correct).length;
         const accuracy = ((correct / total) * 100).toFixed(1);
         
-        const buyPredictions = this.results.filter(r => r.decision === 'BUY');
+        const buyPredictions = results.filter(r => r.decision === 'BUY');
         const buyCorrect = buyPredictions.filter(r => r.correct).length;
         const buyAccuracy = buyPredictions.length > 0 
             ? ((buyCorrect / buyPredictions.length) * 100).toFixed(1) : 'N/A';
         
-        const sellPredictions = this.results.filter(r => r.decision === 'SELL');
+        const sellPredictions = results.filter(r => r.decision === 'SELL');
         const sellCorrect = sellPredictions.filter(r => r.correct).length;
         const sellAccuracy = sellPredictions.length > 0 
             ? ((sellCorrect / sellPredictions.length) * 100).toFixed(1) : 'N/A';
         
-
-        
-        const strategyStats = {};
-        for (const result of this.results) {
-            for (const s of result.matchedStrategies) {
-                if (!strategyStats[s.id]) {
-                    strategyStats[s.id] = { id: s.id, name: s.name, total: 0, correct: 0 };
-                }
-                strategyStats[s.id].total++;
-                // 각 전략의 독립적 정확도 판정
-                // 전략 direction은 'UP'/'DOWN' 값임
-                const strategyCorrect = 
-                    (s.direction === 'UP' && result.result === 'UP') ||
-                    (s.direction === 'DOWN' && result.result === 'DOWN');
-                if (strategyCorrect) strategyStats[s.id].correct++;
-            }
-        }
-        
-        for (const key in strategyStats) {
-            const s = strategyStats[key];
-            s.accuracy = ((s.correct / s.total) * 100).toFixed(1);
-        }
+        // 누적된 전략 통계 사용 (메모리 절약)
+        const statsSource = useSessionStats ? this.strategyStatsSession : this.strategyStatsAll;
+        const strategyStatsArray = Object.values(statsSource || {}).map(s => ({
+            ...s,
+            accuracy: s.total > 0 ? ((s.correct / s.total) * 100).toFixed(1) : '0'
+        })).sort((a, b) => b.total - a.total);
         
         return {
             total, correct, accuracy,
             buyPredictions: buyPredictions.length, buyCorrect, buyAccuracy,
             sellPredictions: sellPredictions.length, sellCorrect, sellAccuracy,
-            strategyStats: Object.values(strategyStats).sort((a, b) => b.total - a.total)
+            strategyStats: strategyStatsArray
         };
+    }
+    
+    /**
+     * 전략별 통계 실시간 누적 (이름 배열 기반)
+     */
+    updateStrategyStats(pred) {
+        // UP 전략 통계 누적
+        const upNames = pred.matchedUpNames || [];
+        for (const name of upNames) {
+            const key = name;
+            const parsedId = UpDownTester.parseStrategyId(name);
+            
+            // 전체 통계
+            if (!this.strategyStatsAll[key]) {
+                this.strategyStatsAll[key] = { direction: 'UP', name: key, id: parsedId, total: 0, correct: 0 };
+            }
+            this.strategyStatsAll[key].total++;
+            if (pred.result === 'UP') this.strategyStatsAll[key].correct++;
+            
+            // 세션 통계
+            if (!this.strategyStatsSession[key]) {
+                this.strategyStatsSession[key] = { direction: 'UP', name: key, id: parsedId, total: 0, correct: 0 };
+            }
+            this.strategyStatsSession[key].total++;
+            if (pred.result === 'UP') this.strategyStatsSession[key].correct++;
+        }
+        
+        // DOWN 전략 통계 누적
+        const downNames = pred.matchedDownNames || [];
+        for (const name of downNames) {
+            const key = name;
+            const parsedId = UpDownTester.parseStrategyId(name);
+            
+            // 전체 통계
+            if (!this.strategyStatsAll[key]) {
+                this.strategyStatsAll[key] = { direction: 'DOWN', name: key, id: parsedId, total: 0, correct: 0 };
+            }
+            this.strategyStatsAll[key].total++;
+            if (pred.result === 'DOWN') this.strategyStatsAll[key].correct++;
+            
+            // 세션 통계
+            if (!this.strategyStatsSession[key]) {
+                this.strategyStatsSession[key] = { direction: 'DOWN', name: key, id: parsedId, total: 0, correct: 0 };
+            }
+            this.strategyStatsSession[key].total++;
+            if (pred.result === 'DOWN') this.strategyStatsSession[key].correct++;
+        }
     }
     
     /**
      * 최종 통계 출력
      */
     printFinalStats() {
-        const stats = this.getStats();
+        const sessionStats = this.getStats(this.sessionResults);
+        const allStats = this.getStats(this.results);
         
         console.log('\n' + '═'.repeat(60));
-        console.log('📊 최종 통계');
+        console.log('📊 최종 통계 (현재 세션)');
         console.log('═'.repeat(60));
-        console.log(`\n총 예측: ${stats.total}회`);
-        console.log(`정확: ${stats.correct}회`);
-        console.log(`정확도: ${stats.accuracy}%`);
+        console.log(`\n세션 시작: ${new Date(this.sessionStartTime).toLocaleString('ko-KR')}`);
+        console.log(`총 예측: ${sessionStats.total}회`);
+        console.log(`정확: ${sessionStats.correct}회`);
+        console.log(`정확도: ${sessionStats.accuracy}%`);
         
-        console.log(`\n📈 방향별 정확도:`);
-        console.log(`   UP (BUY):   ${stats.buyAccuracy}% (${stats.buyCorrect}/${stats.buyPredictions})`);
-        console.log(`   DOWN (SELL): ${stats.sellAccuracy}% (${stats.sellCorrect}/${stats.sellPredictions})`);
+        console.log(`\n📈 방향별 정확도 (세션):`);
+        const buyAccuracyLabel = sessionStats.buyAccuracy === 'N/A' ? 'N/A' : `${sessionStats.buyAccuracy}%`;
+        const sellAccuracyLabel = sessionStats.sellAccuracy === 'N/A' ? 'N/A' : `${sessionStats.sellAccuracy}%`;
+        console.log(`   UP (BUY):   ${buyAccuracyLabel} (${sessionStats.buyCorrect}/${sessionStats.buyPredictions})`);
+        console.log(`   DOWN (SELL): ${sellAccuracyLabel} (${sessionStats.sellCorrect}/${sessionStats.sellPredictions})`);
         
-        if (stats.strategyStats && stats.strategyStats.length > 0) {
-            console.log(`\n🎯 전략별 정확도:`);
-            for (const s of stats.strategyStats.slice(0, 10)) {
-                console.log(`   [${s.id}] ${s.name}: ${s.accuracy}% (${s.correct}/${s.total})`);
+        console.log('\n' + '─'.repeat(60));
+        console.log('📊 오늘 전체 통계 (JSON 누적)');
+        console.log('─'.repeat(60));
+        console.log(`총 예측: ${allStats.total}회`);
+        console.log(`정확: ${allStats.correct}회`);
+        console.log(`정확도: ${allStats.accuracy}%`);
+        
+        if (sessionStats.strategyStats && sessionStats.strategyStats.length > 0) {
+            console.log(`\n🎯 전략별 정확도 (세션) - 상위 20개:`);
+            for (const s of sessionStats.strategyStats.slice(0, 20)) {
+                const dirLabel = s.direction === 'UP' ? 'UP  ' : s.direction === 'DOWN' ? 'DOWN' : '    ';
+                const idStr = String(s.id || '??').padStart(2);
+                console.log(`   [${dirLabel}-${idStr}] ${s.name}: ${s.accuracy}% (${s.correct}/${s.total})`);
             }
+            console.log(`   ... 총 ${sessionStats.strategyStats.length}개 전략 (TXT 파일에서 전체 확인)`);
         }
         console.log('═'.repeat(60));
     }
@@ -455,15 +840,13 @@ async function main() {
     
     // Ctrl+C 처리
     process.on('SIGINT', () => {
-        tester.stop();
-        process.exit(0);
+        tester.stop().then(() => process.exit(0));
     });
     
     // 예상치 못한 종료 시에도 저장
     process.on('uncaughtException', (err) => {
         console.error('❌ 예상치 못한 오류:', err);
-        tester.saveImmediately();
-        process.exit(1);
+        tester.saveImmediately().then(() => process.exit(1));
     });
     
     process.on('unhandledRejection', (err) => {

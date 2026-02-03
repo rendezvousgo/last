@@ -7,6 +7,23 @@ import { RSI, MACD, BollingerBands, EMA, SMA, ATR, Stochastic, ADX } from 'techn
  */
 export class TechnicalIndicators {
     /**
+     * VWMA (Volume Weighted Moving Average) 계산
+     * @param {number[]} closePrices - 종가 배열
+     * @param {number[]} volumes - 거래량 배열
+     * @param {number} period - 기간
+     * @returns {number} VWMA 값
+     */
+    static calculateVWMA(closePrices, volumes, period = 20) {
+        if (!closePrices || !volumes || closePrices.length < period || volumes.length < period) return null;
+        let sumPV = 0;
+        let sumV = 0;
+        for (let i = closePrices.length - period; i < closePrices.length; i++) {
+            sumPV += closePrices[i] * volumes[i];
+            sumV += volumes[i];
+        }
+        return sumV !== 0 ? sumPV / sumV : null;
+    }
+    /**
      * RSI (Relative Strength Index) 계산
      * @param {number[]} closePrices - 종가 배열
      * @param {number} period - 기간 (기본: 14)
@@ -17,7 +34,7 @@ export class TechnicalIndicators {
             values: closePrices,
             period: period
         });
-        return rsi[rsi.length - 1];
+        return rsi.length > 0 ? rsi[rsi.length - 1] : null;
     }
 
     /**
@@ -34,7 +51,7 @@ export class TechnicalIndicators {
             SimpleMAOscillator: false,
             SimpleMASignal: false
         });
-        
+        if (!macd || macd.length === 0) return null;
         const latest = macd[macd.length - 1];
         const prev = macd[macd.length - 2];
         const prev2 = macd[macd.length - 3];
@@ -78,8 +95,8 @@ export class TechnicalIndicators {
         if (!latest) return null;
         
         const bandWidth = latest.upper - latest.lower;
-        const position = ((currentPrice - latest.lower) / bandWidth) * 100;
-        const bandwidth = (bandWidth / latest.middle) * 100;
+        const position = bandWidth !== 0 ? ((currentPrice - latest.lower) / bandWidth) * 100 : 50;
+        const bandwidth = latest.middle !== 0 ? (bandWidth / latest.middle) * 100 : 0;
         
         return {
             upper: latest.upper,
@@ -103,7 +120,7 @@ export class TechnicalIndicators {
             close: klines.map(k => k.close),
             period: period
         });
-        return atr[atr.length - 1];
+        return atr.length > 0 ? atr[atr.length - 1] : null;
     }
 
     /**
@@ -158,7 +175,7 @@ export class TechnicalIndicators {
             values: closePrices,
             period: period
         });
-        return ema[ema.length - 1];
+        return ema.length > 0 ? ema[ema.length - 1] : null;
     }
 
     /**
@@ -172,7 +189,7 @@ export class TechnicalIndicators {
             values: closePrices,
             period: period
         });
-        return sma[sma.length - 1];
+        return sma.length > 0 ? sma[sma.length - 1] : null;
     }
 
     /**
@@ -182,16 +199,18 @@ export class TechnicalIndicators {
      * @returns {Object} 모든 기술적 지표
      */
     static calculateAll(closePrices, klines = null) {
+        if (!closePrices || closePrices.length === 0) return {};
+
         const currentPrice = closePrices[closePrices.length - 1];
-        const prevPrice = closePrices[closePrices.length - 2];
-        const prev2Price = closePrices[closePrices.length - 3];
+        const prevPrice = closePrices.length > 1 ? closePrices[closePrices.length - 2] : null;
+        const prev2Price = closePrices.length > 2 ? closePrices[closePrices.length - 3] : null;
         
         const result = {
             price: currentPrice,
             close: currentPrice,  // price와 동일 (호환성)
             prevClose: prevPrice,
             prev2Close: prev2Price,
-            priceChange: prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0,
+            priceChange: prevPrice != null && prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0,
             rsi: this.calculateRSI(closePrices),
             macd: this.calculateMACD(closePrices),
             bollingerBands: this.calculateBollingerBands(closePrices),
@@ -205,6 +224,14 @@ export class TechnicalIndicators {
             sma100: this.calculateSMA(closePrices, 100),
             sma200: this.calculateSMA(closePrices, 200)
         };
+
+        // Bollinger 이전 밴드 폭 (width_expanding 등 이전 값 비교용)
+        if (result.bollingerBands && closePrices.length > 1) {
+            const prevBb = this.calculateBollingerBands(closePrices.slice(0, -1));
+            if (prevBb?.bandwidth != null) {
+                result.bollingerBands.prevBandwidth = prevBb.bandwidth;
+            }
+        }
         
         // klines가 있으면 추가 지표 계산
         if (klines && klines.length > 0) {
@@ -226,8 +253,6 @@ export class TechnicalIndicators {
             const lastCandle = klines[klines.length - 1];
             const prevCandle = klines[klines.length - 2];
             const prev2Candle = klines[klines.length - 3];
-            const prev3Candle = klines[klines.length - 4];
-            const prev4Candle = klines[klines.length - 5];
             
             if (lastCandle) {
                 result.open = lastCandle.open;
@@ -264,6 +289,10 @@ export class TechnicalIndicators {
             const volumes = klines.slice(-20).map(k => k.volume).filter(v => v > 0);
             result.avgVolume = volumes.length > 0 ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
             result.volumeRatio = result.avgVolume > 0 ? result.volume / result.avgVolume : 1;
+
+            // VWMA (20) 계산
+            const allVolumes = klines.map(k => k.volume);
+            result.vwma = this.calculateVWMA(closePrices, allVolumes, 20);
             
             // 연속 양봉/음봉 계산
             let consecutiveGreen = 0;
@@ -377,7 +406,7 @@ export class TechnicalIndicators {
             result.redStreak = result.consecutiveRed;
             
             // 이전 priceChange, volumeRatio 계산
-            if (prevPrice && prev2Price) {
+            if (prevPrice != null && prev2Price != null) {
                 result.prevPriceChange = prev2Price > 0 ? ((prevPrice - prev2Price) / prev2Price) * 100 : 0;
             }
             if (result.prevVolume && result.avgVolume > 0) {
@@ -395,6 +424,9 @@ export class TechnicalIndicators {
             if (result.stochastic) {
                 result.stochK = result.stochastic.k;
                 result.stochD = result.stochastic.d;
+                // evaluateSignal용 호환성
+                result.stochasticK = result.stochastic.k;
+                result.stochasticD = result.stochastic.d;
             }
             
             // adxPlusDI/adxMinusDI (adx.plusDI/minusDI와 동일 - 호환성)
@@ -528,7 +560,7 @@ export class TechnicalIndicators {
                     const prevWrLow = Math.min(...prevWrKlines.map(k => k.low));
                     result.prevWilliamsR = prevWrHigh !== prevWrLow ? ((prevWrHigh - prevPrice) / (prevWrHigh - prevWrLow)) * -100 : -50;
                 }
-                if (klines.length > wrPeriod + 1) {
+                if (klines.length > wrPeriod + 1 && prev2Price != null) {
                     const prev2WrKlines = klines.slice(-wrPeriod - 2, -2);
                     const prev2WrHigh = Math.max(...prev2WrKlines.map(k => k.high));
                     const prev2WrLow = Math.min(...prev2WrKlines.map(k => k.low));
@@ -546,17 +578,19 @@ export class TechnicalIndicators {
             // ============ prev 시리즈 별칭 ============
             result.prevPrice = prevPrice;
             result.prev2Price = prev2Price;
-            result.prevAtr = result.atr?.prevAtr || result.atr?.atr || 0;
-            result.avgATR = result.avgAtr || result.atr?.atr || 0;
-            result.prevMacd = result.macd?.prevMacdLine || 0;
-            result.prevADX = result.prevAdx || 0;
-            result.prevRSI = result.prevRsi || 0;
+            result.prevAtr = typeof result.atr === 'number' ? result.atr : (result.atr?.atr || 0);
+            result.avgATR = result.avgAtr || (typeof result.atr === 'number' ? result.atr : result.atr?.atr) || 0;
+            result.prevMacd = result.macd?.prevMACD ?? result.macd?.macdLine ?? null;
+            result.prevMacdHist = result.macd?.prevHistogram ?? null;
+            result.macdHistogram = result.macd?.histogram || 0;
+            result.prevADX = result.prevAdx ?? null;
+            result.prevRSI = result.prevRsi ?? null;
             
             // ============ bb 별칭 (bollingerBands) ============
             result.bb = result.bollingerBands;
             
             // ============ prev2PriceChange, prev2VolumeRatio ============
-            if (prev2Price && closePrices.length > 3) {
+            if (prev2Price != null && closePrices.length > 3) {
                 const prev3Price = closePrices[closePrices.length - 4];
                 result.prev2PriceChange = prev3Price > 0 ? ((prev2Price - prev3Price) / prev3Price) * 100 : 0;
             }
@@ -624,13 +658,13 @@ export class TechnicalIndicators {
                 
                 // MACD 조건
                 if (checkMacd) {
-                    if (checkMacd.macdLine < 0) macdNegativeBars++;
-                    if (checkMacd.macdLine < -0.5) macdDeepNegativeBars++;
+                    if (checkMacd.MACD < 0) macdNegativeBars++;
+                    if (checkMacd.MACD < -0.5) macdDeepNegativeBars++;
                     if (checkMacd.histogram < 0) macdHistNegativeBars++;
                     if (prevMacdHistForBars !== null && checkMacd.histogram > prevMacdHistForBars) macdHistRisingBars++;
                     if (checkMacd.histogram > 0) macdHistPositiveBars++;
-                    if (checkMacd.macdLine > checkMacd.signalLine) macdGoldenBars++;
-                    if (Math.abs(checkMacd.macdLine - checkMacd.signalLine) < 0.1) macdConvergeBars++;
+                    if (checkMacd.MACD > checkMacd.signal) macdGoldenBars++;
+                    if (Math.abs(checkMacd.MACD - checkMacd.signal) < 0.1) macdConvergeBars++;
                     if (Math.abs(checkMacd.histogram) < 0.05) macdFlatBars++;
                     prevMacdHistForBars = checkMacd.histogram;
                 }
@@ -727,7 +761,7 @@ export class TechnicalIndicators {
                 result.roc = roc12Price > 0 ? ((currentPrice - roc12Price) / roc12Price) * 100 : 0;
                 // 이전 ROC
                 const prevRoc12Price = closePrices[closePrices.length - 14];
-                result.prevRoc = prevRoc12Price > 0 ? ((prevPrice - prevRoc12Price) / prevRoc12Price) * 100 : 0;
+                result.prevRoc = prevPrice != null && prevRoc12Price > 0 ? ((prevPrice - prevRoc12Price) / prevRoc12Price) * 100 : 0;
             }
             
             // Momentum (단순 모멘텀 = 현재가 - N봉 전 가격)

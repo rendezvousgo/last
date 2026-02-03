@@ -7,23 +7,62 @@ export class BinanceAPI {
     constructor() {
         this.baseURL = 'https://api.binance.com';
         this.timeout = 10000; // 10초 타임아웃
+        this.maxRetries = 3;  // 최대 재시도 횟수
+        this.retryDelay = 1000; // 재시도 간격 (ms)
     }
 
     /**
-     * 캔들스틱 데이터 가져오기
+     * 재시도 로직이 포함된 API 호출
+     * @param {Function} apiCall - 실행할 API 호출 함수
+     * @param {string} operationName - 작업명 (로깅용)
+     * @returns {Promise<any>} API 응답
+     */
+    async withRetry(apiCall, operationName = 'API call') {
+        let lastError;
+        for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                return await apiCall();
+            } catch (error) {
+                lastError = error;
+                const isLastAttempt = attempt === this.maxRetries;
+                const isRetryable = error.code === 'ECONNRESET' || 
+                                   error.code === 'ETIMEDOUT' ||
+                                   error.code === 'ENOTFOUND' ||
+                                   error.response?.status >= 500 ||
+                                   error.response?.status === 429;
+                
+                if (!isRetryable || isLastAttempt) {
+                    throw error;
+                }
+                
+                const delay = this.retryDelay * attempt; // 점진적 지연
+                console.warn(`[${operationName}] 재시도 ${attempt}/${this.maxRetries} (${delay}ms 후)`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+        throw lastError;
+    }
+
+    /**
+     * 캔들스틱 데이터 가져오기 (재시도 포함)
      * @param {string} symbol - 거래쌍 (예: 'BTCUSDT')
      * @param {string} interval - 시간 간격 ('1m', '5m', '15m', '1h', '4h', '1d')
      * @param {number} limit - 가져올 캔들 개수 (최대 1000)
      * @returns {Promise<Array>} 캔들스틱 데이터
      */
-    async getKlines(symbol = 'BTCUSDT', interval = '15m', limit = 500) {
-        try {
+    async getKlines(symbol = 'BTCUSDT', interval = '15m', limit = 500, options = {}) {
+        return this.withRetry(async () => {
+            const params = {
+                symbol: symbol,
+                interval: interval,
+                limit: limit
+            };
+
+            if (options.startTime !== undefined) params.startTime = options.startTime;
+            if (options.endTime !== undefined) params.endTime = options.endTime;
+
             const response = await axios.get(`${this.baseURL}/api/v3/klines`, {
-                params: {
-                    symbol: symbol,
-                    interval: interval,
-                    limit: limit
-                },
+                params,
                 timeout: this.timeout
             });
 
@@ -40,37 +79,31 @@ export class BinanceAPI {
                 takerBuyBaseVolume: parseFloat(candle[9]),
                 takerBuyQuoteVolume: parseFloat(candle[10])
             }));
-        } catch (error) {
-            console.error('Binance API 오류:', error.message);
-            throw error;
-        }
+        }, `getKlines(${symbol}, ${interval})`);
     }
 
     /**
-     * 현재 가격 가져오기
+     * 현재 가격 가져오기 (재시도 포함)
      * @param {string} symbol - 거래쌍
      * @returns {Promise<number>} 현재 가격
      */
     async getCurrentPrice(symbol = 'BTCUSDT') {
-        try {
+        return this.withRetry(async () => {
             const response = await axios.get(`${this.baseURL}/api/v3/ticker/price`, {
                 params: { symbol },
                 timeout: this.timeout
             });
             return parseFloat(response.data.price);
-        } catch (error) {
-            console.error('가격 조회 오류:', error.message);
-            throw error;
-        }
+        }, `getCurrentPrice(${symbol})`);
     }
 
     /**
-     * 24시간 통계 가져오기
+     * 24시간 통계 가져오기 (재시도 포함)
      * @param {string} symbol - 거래쌍
      * @returns {Promise<Object>} 24시간 통계
      */
     async get24hrStats(symbol = 'BTCUSDT') {
-        try {
+        return this.withRetry(async () => {
             const response = await axios.get(`${this.baseURL}/api/v3/ticker/24hr`, {
                 params: { symbol },
                 timeout: this.timeout
@@ -84,10 +117,7 @@ export class BinanceAPI {
                 volume: parseFloat(response.data.volume),
                 quoteVolume: parseFloat(response.data.quoteVolume)
             };
-        } catch (error) {
-            console.error('통계 조회 오류:', error.message);
-            throw error;
-        }
+        }, `get24hrStats(${symbol})`);
     }
 
     /**
