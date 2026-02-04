@@ -44,13 +44,75 @@ class UpDownTester {
         this.loadExistingData();
     }
     
+    /**
+     * 고유한 파일 경로 생성 (기존 파일 있으면 -수정본, -수정본-1, -수정본-2... 추가)
+     */
+    getUniqueFilePath(basePath) {
+        if (!fs.existsSync(basePath)) {
+            return basePath;
+        }
+        
+        const dir = path.dirname(basePath);
+        const ext = path.extname(basePath);
+        const nameWithoutExt = path.basename(basePath, ext);
+        
+        // -수정본 시도
+        let newPath = path.join(dir, `${nameWithoutExt}-수정본${ext}`);
+        if (!fs.existsSync(newPath)) {
+            return newPath;
+        }
+        
+        // -수정본-1, -수정본-2, ... 시도
+        let counter = 1;
+        while (fs.existsSync(newPath)) {
+            newPath = path.join(dir, `${nameWithoutExt}-수정본-${counter}${ext}`);
+            counter++;
+        }
+        return newPath;
+    }
+
     getDateString() {
-        // 한국 시간 기준으로 날짜 생성
-        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+        // 기존 TXT 로그 파일에서 시작일 찾기 (코드 실행 시점 기준 7일 주기)
+        if (!fs.existsSync(this.logDir)) {
+            fs.mkdirSync(this.logDir, { recursive: true });
+        }
+        
+        // 기존 summary TXT 파일 검색 (수정본 제외하고 원본만)
+        const files = fs.readdirSync(this.logDir)
+            .filter(f => f.startsWith('updown-summary-') && f.endsWith('.txt') && !f.includes('-수정본'))
+            .sort();
+        
+        const now = new Date();
+        const koreaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+        const formatDate = (d) => d.toISOString().split('T')[0];
+        
+        if (files.length > 0) {
+            // 가장 최근 파일의 시작일 추출
+            const lastFile = files[files.length - 1];
+            const match = lastFile.match(/updown-summary-(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})\.txt/);
+            
+            if (match) {
+                const startDate = new Date(match[1] + 'T00:00:00+09:00');
+                const endDate = new Date(match[2] + 'T23:59:59+09:00');
+                
+                // 현재 시간이 기존 파일 범위 내라면 그대로 사용
+                if (koreaTime <= endDate) {
+                    return `${match[1]}_to_${match[2]}`;
+                }
+                
+                // 7일 지났으면 새 파일 생성 (현재부터 +6일)
+                const newEndDate = new Date(koreaTime.getTime() + 6 * 24 * 60 * 60 * 1000);
+                return `${formatDate(koreaTime)}_to_${formatDate(newEndDate)}`;
+            }
+        }
+        
+        // 파일 없으면 현재부터 시작 (현재 ~ +6일)
+        const endDate = new Date(koreaTime.getTime() + 6 * 24 * 60 * 60 * 1000);
+        return `${formatDate(koreaTime)}_to_${formatDate(endDate)}`;
     }
 
     /**
-     * 날짜 변경 시 로그 파일 갱신
+     * 주기 변경 시 로그 파일 갱신 (7일 간격)
      */
     updateLogFiles(initial = false) {
         const dateString = this.getDateString();
@@ -65,103 +127,49 @@ class UpDownTester {
             fs.mkdirSync(this.logDir, { recursive: true });
         }
 
+        // 기본 파일 경로
+        const baseSummaryFile = path.join(this.logDir, `updown-summary-${dateString}.txt`);
+        
+        // 초기 실행 시에만 고유 파일명 생성 (기존 파일 보호)
+        if (initial) {
+            this.summaryFile = this.getUniqueFilePath(baseSummaryFile);
+            if (this.summaryFile !== baseSummaryFile) {
+                console.log(`⚠️ 기존 파일 보호: 새 파일로 저장됩니다`);
+            }
+        } else {
+            // 이미 설정된 파일 유지 (세션 중에는 같은 파일 사용)
+            if (!this.summaryFile) {
+                this.summaryFile = this.getUniqueFilePath(baseSummaryFile);
+            }
+        }
+        
         this.logFile = path.join(this.logDir, `updown-test-${dateString}.json`);
-        this.summaryFile = path.join(this.logDir, `updown-summary-${dateString}.txt`);
 
         if (!initial) {
-            console.log(`📅 로그 파일 변경: ${this.logFile}`);
+            console.log(`📅 새 7일 주기 로그 파일: ${dateString}`);
         }
 
-        // 날짜가 바뀌면 새 로그로 전환 (기존 데이터 혼합 방지)
+        // 주기가 바뀌면 새 로그로 전환 (기존 데이터 혼합 방지)
         if (!initial) {
             this.loadExistingData();
         }
     }
     
     /**
-     * 기존 로그 데이터 불러오기 (JSON 합침용)
+     * 세션 데이터 초기화 (새 세션 시작)
      */
     loadExistingData() {
         this.predictions = [];
-        this.results = [];           // 전체 결과 (JSON 저장용)
-        this.sessionResults = [];    // 현재 세션 결과 (summary용)
+        this.results = [];           // 전체 결과
+        this.sessionResults = [];    // 현재 세션 결과
         this.sessionPredictions = []; // 현재 세션 예측
         
         // 전략별 통계 실시간 누적 (메모리 절약용)
-        this.strategyStatsAll = {};      // 오늘 전체
+        this.strategyStatsAll = {};      // 이번 주기 전체
         this.strategyStatsSession = {};  // 현재 세션
         
-        if (fs.existsSync(this.logFile)) {
-            try {
-                const data = JSON.parse(fs.readFileSync(this.logFile, 'utf8'));
-                // 기존 대기 중 예측은 버림 (17분 초과로 신뢰 불가)
-                this.predictions = [];
-                this.results = data.completedResults || [];
-                console.log(`📂 기존 로그 불러옴: ${this.results.length}개 결과 (JSON 합침용)`);
-                
-                // 기존 결과에서 전략 통계 복원 (메모리 효율적)
-                for (const r of this.results) {
-                    // 새 형식 (matchedUpNames, matchedDownNames)
-                    if (r.matchedUpNames) {
-                        for (const name of r.matchedUpNames) {
-                            if (!this.strategyStatsAll[name]) {
-                                this.strategyStatsAll[name] = { 
-                                    direction: 'UP', 
-                                    name, 
-                                    id: UpDownTester.parseStrategyId(name),
-                                    total: 0, 
-                                    correct: 0 
-                                };
-                            }
-                            this.strategyStatsAll[name].total++;
-                            if (r.result === 'UP') this.strategyStatsAll[name].correct++;
-                        }
-                    }
-                    if (r.matchedDownNames) {
-                        for (const name of r.matchedDownNames) {
-                            if (!this.strategyStatsAll[name]) {
-                                this.strategyStatsAll[name] = { 
-                                    direction: 'DOWN', 
-                                    name, 
-                                    id: UpDownTester.parseStrategyId(name),
-                                    total: 0, 
-                                    correct: 0 
-                                };
-                            }
-                            this.strategyStatsAll[name].total++;
-                            if (r.result === 'DOWN') this.strategyStatsAll[name].correct++;
-                        }
-                    }
-                    // 레거시 형식 호환 (matchedStrategies, matchedUpIds 등)
-                    if (r.matchedStrategies) {
-                        for (const s of r.matchedStrategies) {
-                            const key = s.name || `${s.direction}:${s.id}`;
-                            if (!this.strategyStatsAll[key]) {
-                                this.strategyStatsAll[key] = { 
-                                    direction: s.direction, 
-                                    name: key, 
-                                    id: s.id || UpDownTester.parseStrategyId(key),
-                                    total: 0, 
-                                    correct: 0 
-                                };
-                            }
-                            this.strategyStatsAll[key].total++;
-                            const strategyCorrect = 
-                                (s.direction === 'UP' && r.result === 'UP') ||
-                                (s.direction === 'DOWN' && r.result === 'DOWN');
-                            if (strategyCorrect) this.strategyStatsAll[key].correct++;
-                        }
-                        delete r.matchedStrategies;
-                    }
-                }
-                console.log(`📊 기존 통계 복원: ${Object.keys(this.strategyStatsAll).length}개 전략`);
-                console.log(`🆕 새 세션 시작: ${new Date(this.sessionStartTime).toLocaleString('ko-KR')}`);
-            } catch (e) {
-                console.log('📂 새 로그 파일 시작');
-            }
-        } else {
-            console.log('📂 새 로그 파일 시작');
-        }
+        console.log(`🆕 새 세션 시작: ${new Date(this.sessionStartTime).toLocaleString('ko-KR')}`);
+        console.log(`📁 로그 파일: ${this.summaryFile}`);
     }
     
     /**
@@ -173,11 +181,11 @@ class UpDownTester {
     }
     
     /**
-     * 요약 파일 저장
+     * 요약 파일 저장 (append 모드)
      */
     async saveSummary() {
         const summary = this.buildSummary();
-        await fs.promises.writeFile(this.summaryFile, summary, 'utf8');
+        await fs.promises.appendFile(this.summaryFile, summary, 'utf8');
     }
 
     buildSummary() {
@@ -233,32 +241,14 @@ ${this.sessionResults.slice(-10).map(r => {
     }
 
     async saveToFiles(logFile, summaryFile) {
-        // JSON 로그는 너무 커서 저장하지 않음 (TXT 요약만 저장)
-        // const data = {
-        //     symbol: this.symbol,
-        //     startTime: this.results[0]?.timestamp || this.predictions[0]?.timestamp || new Date().toISOString(),
-        //     lastUpdate: new Date().toISOString(),
-        //     stats: this.getStats(),
-        //     pendingPredictions: this.predictions,
-        //     completedResults: this.results
-        // };
-        // await fs.promises.writeFile(logFile, JSON.stringify(data, null, 2), 'utf8');
-        await fs.promises.writeFile(summaryFile, this.buildSummary(), 'utf8');
+        // TXT 요약만 append 모드로 저장
+        await fs.promises.appendFile(summaryFile, this.buildSummary(), 'utf8');
     }
 
     saveToFilesSync(logFile, summaryFile) {
         try {
-            // JSON 로그는 너무 커서 저장하지 않음 (TXT 요약만 저장)
-            // const data = {
-            //     symbol: this.symbol,
-            //     startTime: this.results[0]?.timestamp || this.predictions[0]?.timestamp || new Date().toISOString(),
-            //     lastUpdate: new Date().toISOString(),
-            //     stats: this.getStats(),
-            //     pendingPredictions: this.predictions,
-            //     completedResults: this.results
-            // };
-            // fs.writeFileSync(logFile, JSON.stringify(data, null, 2), 'utf8');
-            fs.writeFileSync(summaryFile, this.buildSummary(), 'utf8');
+            // TXT 요약만 append 모드로 저장
+            fs.appendFileSync(summaryFile, this.buildSummary(), 'utf8');
         } catch (error) {
             console.error('❌ 로그 저장 실패:', error.message);
         }
@@ -280,8 +270,8 @@ ${this.sessionResults.slice(-10).map(r => {
         console.log(`   심볼: ${this.symbol}`);
         console.log(`   예측 간격: 1분마다 새 분기 생성`);
         console.log(`   검증 간격: 각 예측 후 15분`);
-        console.log(`   로그: ${this.logFile}`);
-        console.log(`   기존 결과: ${this.results.length}개`);
+        console.log(`   로그 주기: 7일 (${this.currentDateString})`);
+        console.log(`   로그 파일: ${this.summaryFile}`);
         console.log('═'.repeat(60) + '\n');
         
         // 즉시 1회 실행
