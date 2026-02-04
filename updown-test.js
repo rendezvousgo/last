@@ -181,11 +181,11 @@ class UpDownTester {
     }
     
     /**
-     * 요약 파일 저장 (append 모드)
+     * 요약 파일 저장 (덮어쓰기)
      */
     async saveSummary() {
         const summary = this.buildSummary();
-        await fs.promises.appendFile(this.summaryFile, summary, 'utf8');
+        await fs.promises.writeFile(this.summaryFile, summary, 'utf8');
     }
 
     buildSummary() {
@@ -241,14 +241,14 @@ ${this.sessionResults.slice(-10).map(r => {
     }
 
     async saveToFiles(logFile, summaryFile) {
-        // TXT 요약만 append 모드로 저장
-        await fs.promises.appendFile(summaryFile, this.buildSummary(), 'utf8');
+        // TXT 요약 덮어쓰기 (항상 최신 상태 유지)
+        await fs.promises.writeFile(summaryFile, this.buildSummary(), 'utf8');
     }
 
     saveToFilesSync(logFile, summaryFile) {
         try {
-            // TXT 요약만 append 모드로 저장
-            fs.appendFileSync(summaryFile, this.buildSummary(), 'utf8');
+            // TXT 요약 덮어쓰기 (항상 최신 상태 유지)
+            fs.writeFileSync(summaryFile, this.buildSummary(), 'utf8');
         } catch (error) {
             console.error('❌ 로그 저장 실패:', error.message);
         }
