@@ -23,7 +23,7 @@ class UpDownTester {
     }
 
     constructor(options = {}) {
-        this.symbol = options.symbol || 'BTCUSDT';
+        this.symbol = options.symbol || 'XRPUSDT';
         this.collector = new AIDataCollector();
         this.binance = new BinanceAPI();
         this.dynamicEngine = new DynamicStrategyEngine();
@@ -822,7 +822,7 @@ ${this.sessionResults.slice(-10).map(r => {
 
 async function main() {
     const tester = new UpDownTester({
-        symbol: 'BTCUSDT',
+        symbol: 'XRPUSDT',
         logDir: './logs'
     });
     
