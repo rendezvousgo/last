@@ -222,7 +222,7 @@ DOWN (SELL): ${sessionStats.sellAccuracy === 'N/A' ? 'N/A' : `${sessionStats.sel
 ${(sessionStats.strategyStats || []).map(s => {
     const dirLabel = s.direction === 'UP' ? 'UP  ' : s.direction === 'DOWN' ? 'DOWN' : '    ';
     const idStr = String(s.id || '??').padStart(2);
-    const nameStr = (s.name || 'Unknown').substring(0, 40).padEnd(40);
+    const nameStr = (s.name || 'Unknown');
     const accStr = String(s.accuracy || '0').padStart(5);
     return `[${dirLabel}-${idStr}] ${nameStr} ${accStr}% (${s.correct}/${s.total})`;
 }).join('\n') || '(아직 결과 없음)'}
