@@ -397,17 +397,24 @@ ${this.sessionResults.slice(-10).map(r => {
                 timeframes: data.supportedTimeframes || ['1m', '5m', '15m', '1h']
             });
             
+            // 메모리 최적화: 매칭 수만 저장, 이름 배열은 통계 누적 후 즉시 해제
+            const upCount = analysis.upMatched;
+            const downCount = analysis.downMatched;
+            const upNames = analysis.upNames || [];
+            const downNames = analysis.downNames || [];
+            
             // UP/DOWN 판단 (매칭된 전략 수로 결정)
-            const direction = analysis.upMatched > analysis.downMatched ? 'UP' : 
-                             analysis.downMatched > analysis.upMatched ? 'DOWN' : 'NEUTRAL';
+            const direction = upCount > downCount ? 'UP' : 
+                             downCount > upCount ? 'DOWN' : 'NEUTRAL';
             
             // 4. 예측 저장 (각 분기마다 15분 후 예측)
             const decision = direction === 'UP' ? 'BUY' : 
                             direction === 'DOWN' ? 'SELL' : 'HOLD';
             
             // 메모리 최적화: 이름 배열만 저장 (객체 생성 최소화)
-            const upNames = analysis.upNames || [];
-            const downNames = analysis.downNames || [];
+            // 전략 이름은 최대 200개만 유지 (통계 누적용)
+            const limitedUpNames = upNames.slice(0, 200);
+            const limitedDownNames = downNames.slice(0, 200);
             
             const prediction = {
                 timestamp: now.toISOString(),
@@ -415,14 +422,14 @@ ${this.sessionResults.slice(-10).map(r => {
                 priceAtPrediction: currentPrice,
                 decision: decision,
                 confidence: analysis.totalTested > 0
-                    ? Math.abs(analysis.upMatched - analysis.downMatched) / analysis.totalTested
+                    ? Math.abs(upCount - downCount) / analysis.totalTested
                     : 0,
                 totalTested: analysis.totalTested,
-                // 메모리 최적화: 이름 배열만 저장 (전략 정보는 이름에 포함)
-                matchedUpNames: upNames,
-                matchedDownNames: downNames,
-                buyCount: analysis.upMatched,
-                sellCount: analysis.downMatched,
+                // 메모리 최적화: 제한된 이름 배열만 저장
+                matchedUpNames: limitedUpNames,
+                matchedDownNames: limitedDownNames,
+                buyCount: upCount,
+                sellCount: downCount,
                 multiTimeframe: analysis.multiTimeframe,
                 indicators: {
                     rsi: data.indicators.rsi,
@@ -443,10 +450,15 @@ ${this.sessionResults.slice(-10).map(r => {
             // 5. 예측 출력
             console.log(`\n📊 [${this.coinLabel}] 동적 전략 분석 결과:`);
             console.log(`   총 테스트: ${analysis.totalTested.toLocaleString()}개`);
-            console.log(`   UP 매칭: ${analysis.upMatched}개`);
-            console.log(`   DOWN 매칭: ${analysis.downMatched}개`);
+            console.log(`   UP 매칭: ${upCount}개`);
+            console.log(`   DOWN 매칭: ${downCount}개`);
             console.log(`   결정: ${decision} (신뢰도: ${(prediction.confidence * 100).toFixed(2)}%)`);
             this.printPrediction(prediction, analysis);
+            
+            // 메모리 해제: 대형 객체 명시적 정리
+            if (marketData.__signalCache) marketData.__signalCache.clear();
+            if (marketData.__indicatorCache) marketData.__indicatorCache.clear();
+            if (marketData.__prevIndicatorCache) marketData.__prevIndicatorCache.clear();
             
             // 6. 즉시 로그 저장!!!
             await this.saveImmediately();
@@ -847,8 +859,10 @@ async function main() {
         }));
     }
 
-    for (const tester of testers) {
-        tester.start();
+    for (let idx = 0; idx < testers.length; idx++) {
+        const tester = testers[idx];
+        // 코인별 15초 간격으로 시작 (동시 실행 시 메모리 폭발 방지)
+        setTimeout(() => tester.start(), idx * 15000);
     }
 
     // Ctrl+C 처리

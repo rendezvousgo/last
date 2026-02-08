@@ -1953,8 +1953,12 @@ export class DynamicStrategyEngine {
      */
     testAllStrategies(marketData, options = {}) {
         // 메모리 최적화: 이름 배열만 반환 (객체 생성 최소화)
+        // 이름은 최대 MAX_NAMES개만 저장 (통계용), 카운트는 별도 추적
+        const MAX_NAMES = 500;
         const upMatchedNames = [];
         const downMatchedNames = [];
+        let upMatchedCount = 0;
+        let downMatchedCount = 0;
         let totalTested = 0;
         
         // 멀티 타임프레임 모드 체크
@@ -2008,11 +2012,12 @@ export class DynamicStrategyEngine {
                         totalTested++;
                         if (!this.evaluateSignalCached(buySig, tfMarketData, ind.name, buyParams)) continue;
                         
-                        // 전략 이름만 저장 (객체 생성 최소화)
-                        const indicators = [{ name: ind.name, period: Array.isArray(buyParams) ? buyParams : [buyParams], timeframe: tf }];
-                        const signals = [buySig.desc || buySig.type];
-                        const strategyName = `UP: ${tfLabel}${this.generateStrategyName(indicators, signals)}`;
-                        upMatchedNames.push(strategyName);
+                        upMatchedCount++;
+                        if (upMatchedNames.length < MAX_NAMES) {
+                            const indicators = [{ name: ind.name, period: Array.isArray(buyParams) ? buyParams : [buyParams], timeframe: tf }];
+                            const signals = [buySig.desc || buySig.type];
+                            upMatchedNames.push(`UP: ${tfLabel}${this.generateStrategyName(indicators, signals)}`);
+                        }
                     }
                 }
                 
@@ -2022,11 +2027,12 @@ export class DynamicStrategyEngine {
                         totalTested++;
                         if (!this.evaluateSignalCached(sellSig, tfMarketData, ind.name, sellParams)) continue;
                         
-                        // 전략 이름만 저장 (객체 생성 최소화)
-                        const indicators = [{ name: ind.name, period: Array.isArray(sellParams) ? sellParams : [sellParams], timeframe: tf }];
-                        const signals = [sellSig.desc || sellSig.type];
-                        const strategyName = `DOWN: ${tfLabel}${this.generateStrategyName(indicators, signals)}`;
-                        downMatchedNames.push(strategyName);
+                        downMatchedCount++;
+                        if (downMatchedNames.length < MAX_NAMES) {
+                            const indicators = [{ name: ind.name, period: Array.isArray(sellParams) ? sellParams : [sellParams], timeframe: tf }];
+                            const signals = [sellSig.desc || sellSig.type];
+                            downMatchedNames.push(`DOWN: ${tfLabel}${this.generateStrategyName(indicators, signals)}`);
+                        }
                     }
                 }
             }
@@ -2067,15 +2073,16 @@ export class DynamicStrategyEngine {
                                         if (!this.evaluateSignalCached(buySig1, tfMarketData1, ind1.name, buyParams1)) continue;
                                         if (!this.evaluateSignalCached(buySig2, tfMarketData2, ind2.name, buyParams2)) continue;
                                         
-                                        // 전략 이름만 저장 (객체 생성 최소화)
-                                        const tfLabel = this.formatMultiTimeframeLabel([tf1, tf2]);
-                                        const indicators = [
-                                            { name: ind1.name, period: Array.isArray(buyParams1) ? buyParams1 : [buyParams1], timeframe: tf1 },
-                                            { name: ind2.name, period: Array.isArray(buyParams2) ? buyParams2 : [buyParams2], timeframe: tf2 }
-                                        ];
-                                        const signals = [buySig1.desc || buySig1.type, buySig2.desc || buySig2.type];
-                                        const strategyName = `UP: ${tfLabel}${this.generateStrategyName(indicators, signals)}`;
-                                        upMatchedNames.push(strategyName);
+                                        upMatchedCount++;
+                                        if (upMatchedNames.length < MAX_NAMES) {
+                                            const tfLabel = this.formatMultiTimeframeLabel([tf1, tf2]);
+                                            const indicators = [
+                                                { name: ind1.name, period: Array.isArray(buyParams1) ? buyParams1 : [buyParams1], timeframe: tf1 },
+                                                { name: ind2.name, period: Array.isArray(buyParams2) ? buyParams2 : [buyParams2], timeframe: tf2 }
+                                            ];
+                                            const signals = [buySig1.desc || buySig1.type, buySig2.desc || buySig2.type];
+                                            upMatchedNames.push(`UP: ${tfLabel}${this.generateStrategyName(indicators, signals)}`);
+                                        }
                                     }
                                 }
                             }
@@ -2093,15 +2100,16 @@ export class DynamicStrategyEngine {
                                         if (!this.evaluateSignalCached(sellSig1, tfMarketData1, ind1.name, sellParams1)) continue;
                                         if (!this.evaluateSignalCached(sellSig2, tfMarketData2, ind2.name, sellParams2)) continue;
                                         
-                                        // 전략 이름만 저장 (객체 생성 최소화)
-                                        const tfLabel = this.formatMultiTimeframeLabel([tf1, tf2]);
-                                        const indicators = [
-                                            { name: ind1.name, period: Array.isArray(sellParams1) ? sellParams1 : [sellParams1], timeframe: tf1 },
-                                            { name: ind2.name, period: Array.isArray(sellParams2) ? sellParams2 : [sellParams2], timeframe: tf2 }
-                                        ];
-                                        const signals = [sellSig1.desc || sellSig1.type, sellSig2.desc || sellSig2.type];
-                                        const strategyName = `DOWN: ${tfLabel}${this.generateStrategyName(indicators, signals)}`;
-                                        downMatchedNames.push(strategyName);
+                                        downMatchedCount++;
+                                        if (downMatchedNames.length < MAX_NAMES) {
+                                            const tfLabel = this.formatMultiTimeframeLabel([tf1, tf2]);
+                                            const indicators = [
+                                                { name: ind1.name, period: Array.isArray(sellParams1) ? sellParams1 : [sellParams1], timeframe: tf1 },
+                                                { name: ind2.name, period: Array.isArray(sellParams2) ? sellParams2 : [sellParams2], timeframe: tf2 }
+                                            ];
+                                            const signals = [sellSig1.desc || sellSig1.type, sellSig2.desc || sellSig2.type];
+                                            downMatchedNames.push(`DOWN: ${tfLabel}${this.generateStrategyName(indicators, signals)}`);
+                                        }
                                     }
                                 }
                             }
@@ -2113,13 +2121,21 @@ export class DynamicStrategyEngine {
         
         // 3개 지표 조합 모드 비활성화
         
+        // 메모리 해제: 타임프레임별 캐시 정리
+        for (const [, tfData] of tfMarketDataMap) {
+            if (tfData.__signalCache) { tfData.__signalCache.clear(); tfData.__signalCache = null; }
+            if (tfData.__indicatorCache) { tfData.__indicatorCache.clear(); tfData.__indicatorCache = null; }
+            if (tfData.__prevIndicatorCache) { tfData.__prevIndicatorCache.clear(); tfData.__prevIndicatorCache = null; }
+        }
+        tfMarketDataMap.clear();
+        
         // 메모리 최적화: 이름 배열과 카운트만 반환
         return { 
             upNames: upMatchedNames, 
             downNames: downMatchedNames, 
             totalTested,
-            upMatched: upMatchedNames.length,
-            downMatched: downMatchedNames.length
+            upMatched: upMatchedCount,
+            downMatched: downMatchedCount
         };
     }
     
