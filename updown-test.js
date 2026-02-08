@@ -411,11 +411,6 @@ ${this.sessionResults.slice(-10).map(r => {
             const decision = direction === 'UP' ? 'BUY' : 
                             direction === 'DOWN' ? 'SELL' : 'HOLD';
             
-            // 메모리 최적화: 이름 배열만 저장 (객체 생성 최소화)
-            // 전략 이름은 최대 200개만 유지 (통계 누적용)
-            const limitedUpNames = upNames.slice(0, 200);
-            const limitedDownNames = downNames.slice(0, 200);
-            
             const prediction = {
                 timestamp: now.toISOString(),
                 branchId: `${now.getTime()}`, // 분기 ID
@@ -425,9 +420,8 @@ ${this.sessionResults.slice(-10).map(r => {
                     ? Math.abs(upCount - downCount) / analysis.totalTested
                     : 0,
                 totalTested: analysis.totalTested,
-                // 메모리 최적화: 제한된 이름 배열만 저장
-                matchedUpNames: limitedUpNames,
-                matchedDownNames: limitedDownNames,
+                matchedUpNames: upNames,
+                matchedDownNames: downNames,
                 buyCount: upCount,
                 sellCount: downCount,
                 multiTimeframe: analysis.multiTimeframe,
@@ -861,8 +855,8 @@ async function main() {
 
     for (let idx = 0; idx < testers.length; idx++) {
         const tester = testers[idx];
-        // 코인별 15초 간격으로 시작 (동시 실행 시 메모리 폭발 방지)
-        setTimeout(() => tester.start(), idx * 15000);
+        // 코인별 1분 간격으로 시작 (동시 실행 시 메모리 폭발 방지)
+        setTimeout(() => tester.start(), idx * 60000);
     }
 
     // Ctrl+C 처리
