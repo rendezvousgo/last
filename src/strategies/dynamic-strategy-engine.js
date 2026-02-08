@@ -350,7 +350,9 @@ export class DynamicStrategyEngine {
                     volumes: marketData.volumes?.slice(0, i + 1),
                     opens: marketData.opens?.slice(0, i + 1),
                     buyVolumes: marketData.buyVolumes?.slice(0, i + 1),
-                    sellVolumes: marketData.sellVolumes?.slice(0, i + 1)
+                    sellVolumes: marketData.sellVolumes?.slice(0, i + 1),
+                    __indicatorCache: new Map(),
+                    __prevIndicatorCache: new Map()
                 };
                 const v = this.getIndicatorValue(indicatorName, sliceMarket, paramSet, false);
                 const numeric = typeof v === 'number' && Number.isFinite(v)
@@ -389,7 +391,9 @@ export class DynamicStrategyEngine {
                     volumes: marketData.volumes?.slice(0, i + 1),
                     opens: marketData.opens?.slice(0, i + 1),
                     buyVolumes: marketData.buyVolumes?.slice(0, i + 1),
-                    sellVolumes: marketData.sellVolumes?.slice(0, i + 1)
+                    sellVolumes: marketData.sellVolumes?.slice(0, i + 1),
+                    __indicatorCache: new Map(),
+                    __prevIndicatorCache: new Map()
                 };
                 const v = this.getIndicatorValue(indicatorName, sliceMarket, paramSet, false);
                 const numeric = typeof v === 'number' && Number.isFinite(v)
@@ -689,13 +693,15 @@ export class DynamicStrategyEngine {
             case 'price_above_cloud': {
                 const ichi = getIchimoku();
                 if (!ichi || price == null) return false;
-                const top = Math.max(ichi.senkouA ?? -Infinity, ichi.senkouB ?? -Infinity);
+                if (ichi.senkouA == null || ichi.senkouB == null) return false;
+                const top = Math.max(ichi.senkouA, ichi.senkouB);
                 return price > top;
             }
             case 'price_below_cloud': {
                 const ichi = getIchimoku();
                 if (!ichi || price == null) return false;
-                const bottom = Math.min(ichi.senkouA ?? Infinity, ichi.senkouB ?? Infinity);
+                if (ichi.senkouA == null || ichi.senkouB == null) return false;
+                const bottom = Math.min(ichi.senkouA, ichi.senkouB);
                 return price < bottom;
             }
             case 'price_above_lower': {
@@ -893,14 +899,20 @@ export class DynamicStrategyEngine {
             case 'crossUp':
             case 'increasing':
             case 'expanding_up':
-                return (getValue() ?? -Infinity) > (getValue(true) ?? -Infinity);
+                {
+                    const cur = getValue(); const prev = getValue(true);
+                    return cur != null && prev != null && cur > prev;
+                }
             case 'slope_down':
             case 'falling':
             case 'decreasing':
             case 'contracting':
-                return (getValue() ?? Infinity) < (getValue(true) ?? Infinity);
-
             case 'crossDown':
+                {
+                    const cur = getValue(); const prev = getValue(true);
+                    return cur != null && prev != null && cur < prev;
+                }
+
             // 골든/데드 크로스 (단기 > 중기 > 장기 정배열)
             case 'ema_golden':
             case 'golden_cross':
@@ -1093,9 +1105,12 @@ export class DynamicStrategyEngine {
                         const macdObj = getIndicatorObject() ?? marketData.macd;
                         currentIndicator = macdObj?.MACD ?? macdObj?.macd ?? macdObj?.macdLine ?? getValue();
                         prevIndicator = macdObj?.prevMACD ?? macdObj?.prevMacd ?? getValue(true);
-                    } else if (indicatorName === 'StochasticK' || indicatorName === 'StochasticD') {
+                    } else if (indicatorName === 'StochasticK') {
                         currentIndicator = marketData.stochasticK ?? marketData.stochK ?? getValue();
                         prevIndicator = marketData.prevStochK ?? getValue(true);
+                    } else if (indicatorName === 'StochasticD') {
+                        currentIndicator = marketData.stochasticD ?? marketData.stochD ?? getValue();
+                        prevIndicator = marketData.prevStochD ?? getValue(true);
                     } else if (indicatorName === 'OBV') {
                         currentIndicator = marketData.obv ?? getValue();
                         prevIndicator = marketData.prevObv ?? getValue(true);
@@ -1137,14 +1152,14 @@ export class DynamicStrategyEngine {
                         const support = marketData.support ?? marketData.keyLevels?.nearestSupport;
                         if (price != null && support != null) {
                             const threshold = values?.[0] ?? 1;
-                            return ((price - support) / price) * 100 <= threshold;
+                            return Math.abs((price - support) / price) * 100 <= threshold;
                         }
                     }
                     if (type === 'nearResist' || type === 'near_resist') {
                         const resist = marketData.resistance ?? marketData.keyLevels?.nearestResistance;
                         if (price != null && resist != null) {
                             const threshold = values?.[0] ?? 1;
-                            return ((resist - price) / price) * 100 <= threshold;
+                            return Math.abs((resist - price) / price) * 100 <= threshold;
                         }
                     }
 
@@ -1536,13 +1551,13 @@ export class DynamicStrategyEngine {
                 return minus < (values?.[0] ?? 20);
             }
             case 'gt_plus':
-                return values ? values.some(v => (getValue() ?? NaN) > v) : false;
+                return values ? values.some(v => (getPlusMinus().plus ?? NaN) > v) : false;
             case 'lt_plus':
-                return values ? values.some(v => (getValue() ?? NaN) < v) : false;
+                return values ? values.some(v => (getPlusMinus().plus ?? NaN) < v) : false;
             case 'gt_minus':
-                return values ? values.some(v => (getValue() ?? NaN) > v) : false;
+                return values ? values.some(v => (getPlusMinus().minus ?? NaN) > v) : false;
             case 'lt_minus':
-                return values ? values.some(v => (getValue() ?? NaN) < v) : false;
+                return values ? values.some(v => (getPlusMinus().minus ?? NaN) < v) : false;
 
             // 고저/변동성 계열
             case 'high': {
@@ -1645,7 +1660,8 @@ export class DynamicStrategyEngine {
                     const a = ao[ao.length - 3];
                     const b = ao[ao.length - 2];
                     const c = ao[ao.length - 1];
-                    return a < b && b < c && b < 0 && c > b;
+                    // Saucer Buy: V자 패턴 (dip → recovery) in positive territory
+                    return a > b && c > b && b > 0;
                 }
 
             // 주요 커스텀/복합 지표 신호 매핑
@@ -1688,7 +1704,6 @@ export class DynamicStrategyEngine {
                     const threshold = values?.[0] ?? 70;
                     return ratio != null && ratio > threshold;
                 }
-            case 'near_support':
             case 'near_resistance':
             case 'position_low':
             case 'position_high':
@@ -1699,13 +1714,9 @@ export class DynamicStrategyEngine {
                     const position = obj.position;
                     const curPrice = price ?? marketData.close;
 
-                    if (type === 'near_support' && curPrice != null && support != null) {
-                        const threshold = values?.[0] ?? 1;
-                        return ((curPrice - support) / curPrice) * 100 <= threshold;
-                    }
                     if (type === 'near_resistance' && curPrice != null && resistance != null) {
                         const threshold = values?.[0] ?? 1;
-                        return ((resistance - curPrice) / curPrice) * 100 <= threshold;
+                        return Math.abs((resistance - curPrice) / curPrice) * 100 <= threshold;
                     }
                     if (type === 'position_low') return position != null && position <= (values?.[0] ?? 25);
                     if (type === 'position_high') return position != null && position >= (values?.[0] ?? 75);
@@ -1750,14 +1761,28 @@ export class DynamicStrategyEngine {
             case 'reject_resistance':
                 {
                     const obj = getIndicatorObject() || {};
-                    const level = obj.level ?? obj.support ?? obj.resistance;
                     const curPrice = price ?? marketData.close;
                     const prevPriceSafe = prevPrice ?? marketData.prevClose ?? marketData.prevPrice;
-                    if (level == null || curPrice == null || prevPriceSafe == null) return false;
-                    if (type === 'bounce_support') return prevPriceSafe <= level && curPrice > level;
-                    if (type === 'break_support') return prevPriceSafe >= level && curPrice < level;
-                    if (type === 'break_resistance') return prevPriceSafe <= level && curPrice > level;
-                    if (type === 'reject_resistance') return prevPriceSafe >= level && curPrice < level;
+                    // support/resistance 시그널에 맞는 레벨 선택 (폴백 없이 정확한 레벨만 사용)
+                    const supportLevel = obj.level ?? obj.support;
+                    const resistLevel = obj.level ?? obj.resistance;
+                    if (curPrice == null || prevPriceSafe == null) return false;
+                    if (type === 'bounce_support') {
+                        if (supportLevel == null) return false;
+                        return prevPriceSafe <= supportLevel && curPrice > supportLevel;
+                    }
+                    if (type === 'break_support') {
+                        if (supportLevel == null) return false;
+                        return prevPriceSafe >= supportLevel && curPrice < supportLevel;
+                    }
+                    if (type === 'break_resistance') {
+                        if (resistLevel == null) return false;
+                        return prevPriceSafe <= resistLevel && curPrice > resistLevel;
+                    }
+                    if (type === 'reject_resistance') {
+                        if (resistLevel == null) return false;
+                        return prevPriceSafe >= resistLevel && curPrice < resistLevel;
+                    }
                     return false;
                 }
 
@@ -1907,7 +1932,8 @@ export class DynamicStrategyEngine {
         const signalType = signal?.type ?? 'unknown';
         const valuesKey = signal?.values ? JSON.stringify(signal.values) : '';
         const withKey = signal?.with ?? '';
-        const cacheKey = `${indicatorName}:${paramKey}:${signalType}:${valuesKey}:${withKey}`;
+        const percentiles = Array.isArray(signal?.percentile) ? signal.percentile : null;
+        const cacheKey = `${indicatorName}:${paramKey}:${signalType}:${valuesKey}:${withKey}:${percentiles ? 'p' + JSON.stringify(percentiles) : ''}`;
 
         if (marketData.__signalCache.has(cacheKey)) {
             return marketData.__signalCache.get(cacheKey);
@@ -2012,9 +2038,9 @@ export class DynamicStrategyEngine {
                 const ind1 = this.indicators[i];
                 const ind2 = this.indicators[j];
                 
-                // 제외 지표 건너뛰기
-                if (this.excluded_indicators.includes(ind1.name) || 
-                    this.excluded_indicators.includes(ind2.name)) continue;
+                // 노이즈, 제외 지표 건너뛰기 (direction_required는 isValid2Combo에서 처리)
+                if (this.noise_indicators.includes(ind1.name) || this.noise_indicators.includes(ind2.name) ||
+                    this.excluded_indicators.includes(ind1.name) || this.excluded_indicators.includes(ind2.name)) continue;
                 
                 // signals가 없으면 건너뛰기
                 if (!ind1.signals || !ind1.signals.buy || !ind1.signals.sell) continue;
@@ -2182,6 +2208,7 @@ export class DynamicStrategyEngine {
         }
         
         const n = validIndicators.length;
+        if (n === 0) return 0;
         const avgBuy = sumBuyParamSig / n;
         const avgSell = sumSellParamSig / n;
         

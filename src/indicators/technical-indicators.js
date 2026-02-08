@@ -394,11 +394,13 @@ export class TechnicalIndicators {
                 }
             }
             
-            // 24시간 고저점 (96개 = 15분 * 96 = 24시간)
-            const last96 = klines.slice(-96);
-            if (last96.length > 0) {
-                result.high24h = Math.max(...last96.map(k => k.high));
-                result.low24h = Math.min(...last96.map(k => k.low));
+            // 24시간 고저점 (타임프레임 무관 - 타임스탬프 기반)
+            const lastKlineTime = klines[klines.length - 1]?.openTime || Date.now();
+            const twentyFourHoursAgo = lastKlineTime - 24 * 60 * 60 * 1000;
+            const last24hKlines = klines.filter(k => k.openTime >= twentyFourHoursAgo);
+            if (last24hKlines.length > 0) {
+                result.high24h = Math.max(...last24hKlines.map(k => k.high));
+                result.low24h = Math.min(...last24hKlines.map(k => k.low));
             }
             
             // greenStreak/redStreak (consecutiveGreen/Red와 동일 - 호환성)
@@ -522,26 +524,26 @@ export class TechnicalIndicators {
                 const typicalPrices = klines.map(k => (k.high + k.low + k.close) / 3);
                 const recentTP = typicalPrices.slice(-cciPeriod);
                 const cciMean = recentTP.reduce((a, b) => a + b, 0) / cciPeriod;
-                const cciStd = Math.sqrt(recentTP.reduce((sum, tp) => sum + Math.pow(tp - cciMean, 2), 0) / cciPeriod);
+                const cciMad = recentTP.reduce((sum, tp) => sum + Math.abs(tp - cciMean), 0) / cciPeriod;
                 const currentTP = typicalPrices[typicalPrices.length - 1];
-                result.cci = cciStd > 0 ? (currentTP - cciMean) / (0.015 * cciStd) : 0;
+                result.cci = cciMad > 0 ? (currentTP - cciMean) / (0.015 * cciMad) : 0;
                 result.cciMean = cciMean;
-                result.cciStd = cciStd;
+                result.cciMad = cciMad;
                 
                 // 이전 CCI
                 if (typicalPrices.length > cciPeriod) {
                     const prevTP = typicalPrices.slice(-cciPeriod - 1, -1);
                     const prevCciMean = prevTP.reduce((a, b) => a + b, 0) / cciPeriod;
-                    const prevCciStd = Math.sqrt(prevTP.reduce((sum, tp) => sum + Math.pow(tp - prevCciMean, 2), 0) / cciPeriod);
+                    const prevCciMad = prevTP.reduce((sum, tp) => sum + Math.abs(tp - prevCciMean), 0) / cciPeriod;
                     const prevTPValue = typicalPrices[typicalPrices.length - 2];
-                    result.prevCci = prevCciStd > 0 ? (prevTPValue - prevCciMean) / (0.015 * prevCciStd) : 0;
+                    result.prevCci = prevCciMad > 0 ? (prevTPValue - prevCciMean) / (0.015 * prevCciMad) : 0;
                 }
                 if (typicalPrices.length > cciPeriod + 1) {
                     const prev2TP = typicalPrices.slice(-cciPeriod - 2, -2);
                     const prev2CciMean = prev2TP.reduce((a, b) => a + b, 0) / cciPeriod;
-                    const prev2CciStd = Math.sqrt(prev2TP.reduce((sum, tp) => sum + Math.pow(tp - prev2CciMean, 2), 0) / cciPeriod);
+                    const prev2CciMad = prev2TP.reduce((sum, tp) => sum + Math.abs(tp - prev2CciMean), 0) / cciPeriod;
                     const prev2TPValue = typicalPrices[typicalPrices.length - 3];
-                    result.prev2Cci = prev2CciStd > 0 ? (prev2TPValue - prev2CciMean) / (0.015 * prev2CciStd) : 0;
+                    result.prev2Cci = prev2CciMad > 0 ? (prev2TPValue - prev2CciMean) / (0.015 * prev2CciMad) : 0;
                 }
             }
             
@@ -632,7 +634,7 @@ export class TechnicalIndicators {
             let prevMacdHistForBars = null;
             let prevBBWidthForBars = null;
             
-            for (let i = 0; i < barsToCheck; i++) {
+            for (let i = barsToCheck - 1; i >= 0; i--) {
                 const idx = closePrices.length - 1 - i;
                 const checkPrices = closePrices.slice(0, idx + 1);
                 const checkKlines = klines.slice(0, idx + 1);
@@ -659,13 +661,13 @@ export class TechnicalIndicators {
                 // MACD 조건
                 if (checkMacd) {
                     if (checkMacd.MACD < 0) macdNegativeBars++;
-                    if (checkMacd.MACD < -0.5) macdDeepNegativeBars++;
+                    if (checkPrice > 0 && checkMacd.MACD / checkPrice < -0.005) macdDeepNegativeBars++;
                     if (checkMacd.histogram < 0) macdHistNegativeBars++;
                     if (prevMacdHistForBars !== null && checkMacd.histogram > prevMacdHistForBars) macdHistRisingBars++;
                     if (checkMacd.histogram > 0) macdHistPositiveBars++;
                     if (checkMacd.MACD > checkMacd.signal) macdGoldenBars++;
-                    if (Math.abs(checkMacd.MACD - checkMacd.signal) < 0.1) macdConvergeBars++;
-                    if (Math.abs(checkMacd.histogram) < 0.05) macdFlatBars++;
+                    if (checkPrice > 0 && Math.abs(checkMacd.MACD - checkMacd.signal) / checkPrice < 0.001) macdConvergeBars++;
+                    if (checkPrice > 0 && Math.abs(checkMacd.histogram) / checkPrice < 0.0005) macdFlatBars++;
                     prevMacdHistForBars = checkMacd.histogram;
                 }
                 

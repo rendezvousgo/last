@@ -24,6 +24,7 @@ class UpDownTester {
 
     constructor(options = {}) {
         this.symbol = options.symbol || 'XRPUSDT';
+        this.coinLabel = this.symbol.replace('USDT', '');
         this.collector = new AIDataCollector();
         this.binance = new BinanceAPI();
         this.dynamicEngine = new DynamicStrategyEngine();
@@ -79,24 +80,30 @@ class UpDownTester {
         
         // 기존 summary TXT 파일 검색 (수정본 제외하고 원본만)
         const files = fs.readdirSync(this.logDir)
-            .filter(f => f.startsWith('updown-summary-') && f.endsWith('.txt') && !f.includes('-수정본'))
+            .filter(f => f.startsWith(`updown-summary-${this.symbol}-`) && f.endsWith('.txt') && !f.includes('-수정본'))
             .sort();
         
         const now = new Date();
         const koreaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-        const formatDate = (d) => d.toISOString().split('T')[0];
+        const formatDate = (d) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        };
         
         if (files.length > 0) {
             // 가장 최근 파일의 시작일 추출
             const lastFile = files[files.length - 1];
-            const match = lastFile.match(/updown-summary-(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})\.txt/);
+            const match = lastFile.match(new RegExp(`updown-summary-${this.symbol}-(\\d{4}-\\d{2}-\\d{2})_to_(\\d{4}-\\d{2}-\\d{2})\\.txt`));
             
             if (match) {
-                const startDate = new Date(match[1] + 'T00:00:00+09:00');
-                const endDate = new Date(match[2] + 'T23:59:59+09:00');
+                // endDate를 KST로 직접 파싱 (timezone 의존성 제거)
+                const endDateParts = match[2].split('-').map(Number);
+                const endDateKST = new Date(endDateParts[0], endDateParts[1] - 1, endDateParts[2], 23, 59, 59);
                 
-                // 현재 시간이 기존 파일 범위 내라면 그대로 사용
-                if (koreaTime <= endDate) {
+                // koreaTime과 endDateKST 모두 로컬 Date 객체로 비교 (일관성)
+                if (koreaTime <= endDateKST) {
                     return `${match[1]}_to_${match[2]}`;
                 }
                 
@@ -118,8 +125,8 @@ class UpDownTester {
         const dateString = this.getDateString();
         if (this.currentDateString === dateString) return;
 
-        if (!initial && this.logFile && this.summaryFile) {
-            this.saveToFilesSync(this.logFile, this.summaryFile);
+        if (!initial && this.summaryFile) {
+            this.saveToFilesSync(this.summaryFile);
         }
 
         this.currentDateString = dateString;
@@ -128,7 +135,7 @@ class UpDownTester {
         }
 
         // 기본 파일 경로
-        const baseSummaryFile = path.join(this.logDir, `updown-summary-${dateString}.txt`);
+        const baseSummaryFile = path.join(this.logDir, `updown-summary-${this.symbol}-${dateString}.txt`);
         
         // 초기 실행 시에만 고유 파일명 생성 (기존 파일 보호)
         if (initial) {
@@ -137,13 +144,9 @@ class UpDownTester {
                 console.log(`⚠️ 기존 파일 보호: 새 파일로 저장됩니다`);
             }
         } else {
-            // 이미 설정된 파일 유지 (세션 중에는 같은 파일 사용)
-            if (!this.summaryFile) {
-                this.summaryFile = this.getUniqueFilePath(baseSummaryFile);
-            }
+            // 7일 주기 변경: 새 파일로 전환
+            this.summaryFile = this.getUniqueFilePath(baseSummaryFile);
         }
-        
-        this.logFile = path.join(this.logDir, `updown-test-${dateString}.json`);
 
         if (!initial) {
             console.log(`📅 새 7일 주기 로그 파일: ${dateString}`);
@@ -159,16 +162,16 @@ class UpDownTester {
      * 세션 데이터 초기화 (새 세션 시작)
      */
     loadExistingData() {
-        this.predictions = [];
+        // 대기 중인 예측은 보존 (7일 롤오버 시 데이터 손실 방지)
+        if (!this.predictions) this.predictions = [];
         this.results = [];           // 전체 결과
         this.sessionResults = [];    // 현재 세션 결과
-        this.sessionPredictions = []; // 현재 세션 예측
         
         // 전략별 통계 실시간 누적 (메모리 절약용)
         this.strategyStatsAll = {};      // 이번 주기 전체
         this.strategyStatsSession = {};  // 현재 세션
         
-        console.log(`🆕 새 세션 시작: ${new Date(this.sessionStartTime).toLocaleString('ko-KR')}`);
+        console.log(`🆕 [${this.coinLabel}] 새 세션 시작: ${new Date(this.sessionStartTime).toLocaleString('ko-KR')}`);
         console.log(`📁 로그 파일: ${this.summaryFile}`);
     }
     
@@ -176,17 +179,12 @@ class UpDownTester {
      * 즉시 로그 저장 (매 사이클마다 호출)
      */
     async saveImmediately() {
-        this.updateLogFiles();
-        await this.saveToFiles(this.logFile, this.summaryFile);
+        await this.saveToFiles(this.summaryFile);
     }
     
     /**
      * 요약 파일 저장 (덮어쓰기)
      */
-    async saveSummary() {
-        const summary = this.buildSummary();
-        await fs.promises.writeFile(this.summaryFile, summary, 'utf8');
-    }
 
     buildSummary() {
         // 현재 세션 데이터만 사용 (useSessionStats=true로 세션 전략 통계 사용)
@@ -206,7 +204,7 @@ class UpDownTester {
 정확: ${sessionStats.correct}회
 정확도: ${sessionStats.accuracy}%
 
-📊 오늘 전체 통계 (JSON 누적)
+📊 전체 누적 통계
 ───────────────────────────────────────────────────────────
 총 예측: ${allStats.total}회
 정확: ${allStats.correct}회
@@ -240,12 +238,12 @@ ${this.sessionResults.slice(-10).map(r => {
 `;
     }
 
-    async saveToFiles(logFile, summaryFile) {
+    async saveToFiles(summaryFile) {
         // TXT 요약 덮어쓰기 (항상 최신 상태 유지)
         await fs.promises.writeFile(summaryFile, this.buildSummary(), 'utf8');
     }
 
-    saveToFilesSync(logFile, summaryFile) {
+    saveToFilesSync(summaryFile) {
         try {
             // TXT 요약 덮어쓰기 (항상 최신 상태 유지)
             fs.writeFileSync(summaryFile, this.buildSummary(), 'utf8');
@@ -265,7 +263,7 @@ ${this.sessionResults.slice(-10).map(r => {
         
         this.isRunning = true;
         console.log('═'.repeat(60));
-        console.log('🚀 15분 업다운 테스트 시작 (1분 간격 분기)');
+        console.log(`🚀 [${this.coinLabel}] 15분 업다운 테스트 시작 (1분 간격 분기)`);
         console.log('═'.repeat(60));
         console.log(`   심볼: ${this.symbol}`);
         console.log(`   예측 간격: 1분마다 새 분기 생성`);
@@ -275,11 +273,11 @@ ${this.sessionResults.slice(-10).map(r => {
         console.log('═'.repeat(60) + '\n');
         
         // 즉시 1회 실행
-        this.runCycle();
+        this.runCycle().catch(e => console.error(`❌ [${this.coinLabel}] 사이클 오류:`, e.message));
         
         // 1분마다 실행 (새 분기 생성)
         this.timer = setInterval(() => {
-            this.runCycle();
+            this.runCycle().catch(e => console.error(`❌ [${this.coinLabel}] 사이클 오류:`, e.message));
         }, 1 * 60 * 1000);
     }
     
@@ -305,19 +303,24 @@ ${this.sessionResults.slice(-10).map(r => {
      */
     async runCycle() {
         if (this.isCycleRunning) {
-            console.log('⚠️ 이전 사이클이 아직 실행 중입니다. 이번 분기는 건너뜁니다.');
+            console.log(`⚠️ [${this.coinLabel}] 이전 사이클이 아직 실행 중입니다. 이번 분기는 건너뜁니다.`);
             return;
         }
         this.isCycleRunning = true;
-        this.updateLogFiles();
-        const now = new Date();
-        console.log(`\n${'─'.repeat(60)}`);
-        console.log(`⏰ ${now.toLocaleString('ko-KR')} - 새 분기 생성`);
-        console.log('─'.repeat(60));
         
         try {
+            this.updateLogFiles();
+            const now = new Date();
+            console.log(`\n${'─'.repeat(60)}`);
+            console.log(`⏰ [${this.coinLabel}] ${now.toLocaleString('ko-KR')} - 새 분기 생성`);
+            console.log('─'.repeat(60));
             // 1. 현재 가격 조회
             const currentPrice = await this.binance.getCurrentPrice(this.symbol);
+            
+            if (currentPrice == null) {
+                console.error(`❌ [${this.coinLabel}] 현재 가격 조회 실패`);
+                return;
+            }
             
             // 2. 이전 예측들 검증 (15분 이상 지난 것들)
             await this.verifyPredictions(currentPrice, now);
@@ -365,10 +368,10 @@ ${this.sessionResults.slice(-10).map(r => {
                 dailyLow: data.dailyOHLC?.low ?? null,
                 dailyClose: data.dailyOHLC?.close ?? null,
                 price: data.currentPrice ?? data.indicators?.price,
-                close: data.indicators?.close ?? closes[closes.length - 1],
-                prevClose: data.indicators?.prevClose ?? closes[closes.length - 2],
-                prev2Close: data.indicators?.prev2Close ?? closes[closes.length - 3],
-                prevPrice: data.indicators?.prevClose ?? closes[closes.length - 2],
+                close: data.indicators?.close ?? (closes.length > 0 ? closes[closes.length - 1] : null),
+                prevClose: data.indicators?.prevClose ?? (closes.length > 1 ? closes[closes.length - 2] : null),
+                prev2Close: data.indicators?.prev2Close ?? (closes.length > 2 ? closes[closes.length - 3] : null),
+                prevPrice: data.indicators?.prevClose ?? (closes.length > 1 ? closes[closes.length - 2] : null),
                 bb: data.indicators?.bollingerBands ?? data.indicators?.bb,
                 vwma,
                 keyLevels: data.keyLevels,
@@ -436,10 +439,9 @@ ${this.sessionResults.slice(-10).map(r => {
             };
             
             this.predictions.push(prediction);
-            this.sessionPredictions.push(prediction);
             
             // 5. 예측 출력
-            console.log(`\n📊 동적 전략 분석 결과:`);
+            console.log(`\n📊 [${this.coinLabel}] 동적 전략 분석 결과:`);
             console.log(`   총 테스트: ${analysis.totalTested.toLocaleString()}개`);
             console.log(`   UP 매칭: ${analysis.upMatched}개`);
             console.log(`   DOWN 매칭: ${analysis.downMatched}개`);
@@ -448,7 +450,7 @@ ${this.sessionResults.slice(-10).map(r => {
             
             // 6. 즉시 로그 저장!!!
             await this.saveImmediately();
-            console.log(`💾 로그 저장 완료 (대기 중: ${this.predictions.length}개)`);
+            console.log(`💾 [${this.coinLabel}] 로그 저장 완료 (대기 중: ${this.predictions.length}개)`);
             
         } catch (error) {
             console.error('❌ 오류:', error.message);
@@ -462,7 +464,7 @@ ${this.sessionResults.slice(-10).map(r => {
      * - 15분~20분 사이만 검증 (정확한 15분 후 가격)
      * - 20분 이상 지난 것은 버림 (껐다 켠 경우 신뢰 불가)
      */
-    async verifyPredictions(currentPrice, now) {
+    async verifyPredictions(currentPrice_unused, now) {
         const toVerify = [];
         const stillPending = [];
         const toDiscard = [];
@@ -485,7 +487,7 @@ ${this.sessionResults.slice(-10).map(r => {
         
         // 버려지는 예측 로그
         if (toDiscard.length > 0) {
-            console.log(`⚠️ ${toDiscard.length}개 예측 폐기 (20분 초과 - 신뢰 불가)`);
+            console.log(`⚠️ [${this.coinLabel}] ${toDiscard.length}개 예측 폐기 (20분 초과 - 신뢰 불가)`);
             for (const pred of toDiscard) {
                 const elapsed = ((now - new Date(pred.timestamp)) / 1000 / 60).toFixed(1);
                 console.log(`   - 분기 #${pred.branchId?.slice(-6)} (${elapsed}분 경과)`);
@@ -542,6 +544,15 @@ ${this.sessionResults.slice(-10).map(r => {
                 
                 this.results.push(pred);
                 this.sessionResults.push(pred);
+                
+                // 메모리 보호: 최대 5000개까지만 유지
+                const MAX_RESULTS = 5000;
+                if (this.results.length > MAX_RESULTS) {
+                    this.results = this.results.slice(-MAX_RESULTS);
+                }
+                if (this.sessionResults.length > MAX_RESULTS) {
+                    this.sessionResults = this.sessionResults.slice(-MAX_RESULTS);
+                }
                 
                 // 전략별 통계 실시간 누적 (메모리 절약 핵심)
                 this.updateStrategyStats(pred);
@@ -645,7 +656,7 @@ ${this.sessionResults.slice(-10).map(r => {
                       pred.decision === 'SELL' ? '🔴' : '⚪';
         
         const branchLabel = pred.branchId ? ` (분기 #${pred.branchId.slice(-6)})` : '';
-        console.log(`\n📊 새 예측 생성${branchLabel}`);
+        console.log(`\n📊 [${this.coinLabel}] 새 예측 생성${branchLabel}`);
         console.log(`   💰 현재가: $${pred.priceAtPrediction.toLocaleString()}`);
         console.log(`   📈 Fear & Greed: ${pred.fearGreed ?? 'N/A'}`);
         console.log(`   📊 RSI: ${pred.indicators.rsi?.toFixed(1)}`);
@@ -673,7 +684,7 @@ ${this.sessionResults.slice(-10).map(r => {
         const correctEmoji = pred.correct ? '✅' : '❌';
         
         const branchLabel = pred.branchId ? ` (분기 #${pred.branchId.slice(-6)})` : '';
-        console.log(`\n${correctEmoji} 예측 검증 완료${branchLabel}`);
+        console.log(`\n${correctEmoji} [${this.coinLabel}] 예측 검증 완료${branchLabel}`);
         console.log(`   예측 시점: ${new Date(pred.timestamp).toLocaleTimeString('ko-KR')}`);
         console.log(`   ${predEmoji} 예측: ${pred.decision} (${(pred.confidence * 100).toFixed(2)}%)`);
         console.log(`   ${resultEmoji} 실제: ${pred.result} (${pred.priceChangePercent.toFixed(3)}%)`);
@@ -783,7 +794,7 @@ ${this.sessionResults.slice(-10).map(r => {
         const allStats = this.getStats(this.results);
         
         console.log('\n' + '═'.repeat(60));
-        console.log('📊 최종 통계 (현재 세션)');
+        console.log(`📊 [${this.coinLabel}] 최종 통계 (현재 세션)`);
         console.log('═'.repeat(60));
         console.log(`\n세션 시작: ${new Date(this.sessionStartTime).toLocaleString('ko-KR')}`);
         console.log(`총 예측: ${sessionStats.total}회`);
@@ -797,7 +808,7 @@ ${this.sessionResults.slice(-10).map(r => {
         console.log(`   DOWN (SELL): ${sellAccuracyLabel} (${sessionStats.sellCorrect}/${sessionStats.sellPredictions})`);
         
         console.log('\n' + '─'.repeat(60));
-        console.log('📊 오늘 전체 통계 (JSON 누적)');
+        console.log('📊 전체 누적 통계');
         console.log('─'.repeat(60));
         console.log(`총 예측: ${allStats.total}회`);
         console.log(`정확: ${allStats.correct}회`);
@@ -821,28 +832,54 @@ ${this.sessionResults.slice(-10).map(r => {
 // ═══════════════════════════════════════════════════════════════
 
 async function main() {
-    const tester = new UpDownTester({
-        symbol: 'XRPUSDT',
-        logDir: './logs'
-    });
-    
-    tester.start();
-    
+    const symbols = ['BTCUSDT', 'SOLUSDT', 'XRPUSDT', 'ETHUSDT'];
+    const testers = [];
+
+    console.log('═'.repeat(60));
+    console.log(`🚀 멀티코인 백테스트 시작: ${symbols.map(s => s.replace('USDT', '')).join(', ')}`);
+    console.log(`   총 ${symbols.length}개 코인 × 1분 간격 분기`);
+    console.log('═'.repeat(60));
+
+    for (const symbol of symbols) {
+        testers.push(new UpDownTester({
+            symbol,
+            logDir: './logs'
+        }));
+    }
+
+    for (const tester of testers) {
+        tester.start();
+    }
+
     // Ctrl+C 처리
-    process.on('SIGINT', () => {
-        tester.stop().then(() => process.exit(0));
+    process.on('SIGINT', async () => {
+        console.log('\n🛑 모든 테스터 정지 중...');
+        for (const tester of testers) {
+            try {
+                await tester.stop();
+            } catch (e) {
+                console.error(`❌ [${tester.coinLabel}] 정지 오류:`, e.message);
+            }
+        }
+        process.exit(0);
     });
-    
-    // 예상치 못한 종료 시에도 저장
+
+    // 예상치 못한 종료 시에도 저장 (동기 저장 사용)
     process.on('uncaughtException', (err) => {
         console.error('❌ 예상치 못한 오류:', err);
-        tester.saveImmediately().then(() => process.exit(1));
+        for (const tester of testers) {
+            try {
+                tester.saveToFilesSync(tester.summaryFile);
+            } catch (e) {
+                console.error(`❌ [${tester.coinLabel}] 저장 실패:`, e.message);
+            }
+        }
+        process.exit(1);
     });
-    
-    process.on('unhandledRejection', (err) => {
-        console.error('❌ 처리되지 않은 프로미스:', err);
-        tester.saveImmediately();
+
+    process.on('unhandledRejection', (reason, promise) => {
+        console.error('❌ 처리되지 않은 프로미스:', reason);
     });
 }
 
-main();
+main().catch(err => { console.error('❌ 시작 실패:', err); process.exit(1); });

@@ -663,12 +663,17 @@ export function KlingerOscillator(highs, lows, closes, volumes) {
     if (closes.length < 55) return null;
     
     const vf = [];
+    let prevCm = 0;
+    let prevTrend = 0;
     for (let i = 1; i < closes.length; i++) {
         const hlc = highs[i] + lows[i] + closes[i];
         const prevHlc = highs[i-1] + lows[i-1] + closes[i-1];
         const trend = hlc > prevHlc ? 1 : -1;
         const dm = highs[i] - lows[i];
-        const cm = dm + (vf.length > 0 ? Math.abs(vf[vf.length - 1]) : 0);
+        // CM: 트렌드 전환 시 DM만, 유지 시 prevCm + DM
+        const cm = (trend === prevTrend && i > 1) ? prevCm + dm : dm;
+        prevCm = cm;
+        prevTrend = trend;
         vf.push(volumes[i] * Math.abs(2 * dm / (cm || 1) - 1) * trend * 100);
     }
     
@@ -750,7 +755,7 @@ export function MinusDI(highs, lows, closes, period = 14) {
 export function AroonUp(highs, period = 25) {
     if (highs.length < period) return null;
     const slice = highs.slice(-period);
-    const highIdx = slice.indexOf(Math.max(...slice));
+    const highIdx = slice.lastIndexOf(Math.max(...slice));
     return ((period - (period - 1 - highIdx)) / period) * 100;
 }
 
@@ -758,7 +763,7 @@ export function AroonUp(highs, period = 25) {
 export function AroonDown(lows, period = 25) {
     if (lows.length < period) return null;
     const slice = lows.slice(-period);
-    const lowIdx = slice.indexOf(Math.min(...slice));
+    const lowIdx = slice.lastIndexOf(Math.min(...slice));
     return ((period - (period - 1 - lowIdx)) / period) * 100;
 }
 

@@ -126,7 +126,7 @@ export class BinanceAPI {
      * @returns {Promise<Object>} 심볼별 가격 객체
      */
     async getMultiplePrices(symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']) {
-        try {
+        return this.withRetry(async () => {
             const response = await axios.get(`${this.baseURL}/api/v3/ticker/price`, {
                 timeout: this.timeout
             });
@@ -141,10 +141,7 @@ export class BinanceAPI {
             });
             
             return result;
-        } catch (error) {
-            console.error('다중 가격 조회 오류:', error.message);
-            throw error;
-        }
+        }, `getMultiplePrices(${symbols.join(',')})`);
     }
 
     /**
